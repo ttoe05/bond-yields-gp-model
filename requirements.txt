@@ -1,0 +1,35 @@
+# Core data manipulation and analysis
+pandas>=1.5.0
+numpy>=1.21.0
+
+# Machine learning and Gaussian Processes
+scikit-learn>=1.1.0
+
+# Configuration and file handling
+PyYAML>=6.0
+pathlib2>=2.3.0  # For older Python versions, usually included in stdlib
+
+# Progress tracking
+tqdm>=4.64.0
+
+# Parallel processing (usually included in stdlib)
+# concurrent.futures - part of standard library
+
+# Logging and warnings (part of standard library)
+# logging - part of standard library
+# warnings - part of standard library
+
+# Type hints (part of standard library for Python 3.5+)
+# typing - part of standard library
+
+# Date and time handling (part of standard library)
+# datetime - part of standard library
+
+# System utilities (part of standard library)
+# os, sys, time, gc, argparse, json - part of standard library
+
+# Archive dependencies (optional - only needed for archived visualization/metrics files)
+# matplotlib>=3.5.0
+# seaborn>=0.11.0
+# plotly>=5.0.0
+# scipy>=1.7.0
