@@ -1,9 +1,11 @@
 """
 Data loading and validation utilities for bond yield forecasting.
 """
+from pyexpat import features
 
 import pandas as pd
 import numpy as np
+import yaml
 from typing import Tuple, List, Optional, Dict
 import logging
 from pathlib import Path
@@ -34,7 +36,7 @@ class BondDataLoader:
         if not self.data_path.suffix == '.parquet':
             raise ValueError("Data file must be a .parquet file")
     
-    def load_data(self) -> None:
+    def load_data(self, x: list[str], y: list[str]) -> None:
         """
         Load the bond data from parquet file.
         
@@ -55,6 +57,9 @@ class BondDataLoader:
             #
             # Sort by date
             df_tmp.sort_index(inplace=True)
+            full_columns = x + y
+            # handle nulls
+            df_tmp = df_tmp[full_columns].dropna()
             logger.info(f"Loaded data: {df_tmp.shape[0]} rows, {df_tmp.shape[1]} columns")
             logger.info(f"Date range: {df_tmp.index.min()} to {df_tmp.index.max()}")
             
@@ -92,7 +97,7 @@ class BondDataLoader:
         return windows
     
     def get_window_data(self, start_idx: int, end_idx: int, 
-                       target_column: str, feature_columns: List[str]) -> Tuple[pd.DataFrame, pd.Series]:
+                       target_columns: list[str], feature_columns: List[str]) -> Tuple[pd.DataFrame, pd.Series]:
         """
         Extract data for a specific time window.
         
@@ -112,7 +117,7 @@ class BondDataLoader:
         
         # Extract features and target
         x = window_data[feature_columns]
-        y = window_data[target_column]
+        y = window_data[target_columns]
         
         # # Handle missing values by forward filling
         # X = X.fillna(method='ffill').fillna(method='bfill')
@@ -120,7 +125,7 @@ class BondDataLoader:
         
         return x, y
     
-    def get_prediction_point(self, idx: int, feature_columns: List[str]) -> pd.Series:
+    def get_prediction_point(self, idx: int, feature_columns: List[str]) -> pd.DataFrame:
         """
         Get features for a single prediction point.
         
@@ -139,15 +144,15 @@ class BondDataLoader:
         
         features = self.data.iloc[idx][feature_columns]
         
-        return features
+        return features.to_frame().T  # Return as DataFrame
     
-    def get_actual_value(self, idx: int, target_column: str) -> float:
+    def get_actual_value(self, idx: int, target_columns: list[str]) -> float:
         """
         Get actual target value for a prediction point.
         
         Args:
             idx: Index of the prediction point
-            target_column: Name of target variable
+            target_columns: Name of target variables
             
         Returns:
             Actual target value
@@ -158,7 +163,7 @@ class BondDataLoader:
         if idx >= len(self.data):
             raise IndexError(f"Index {idx} out of bounds for data with {len(self.data)} rows")
         
-        return self.data.iloc[idx][target_column]
+        return self.data.iloc[idx][target_columns].to_frame().T
     
     def get_date_for_index(self, idx: int) -> pd.Timestamp:
         """
@@ -189,16 +194,22 @@ class BondDataLoader:
 
 if __name__ == "__main__":
     # Example usage
-    data_loader = BondDataLoader(data_path="bond_train_diff.parquet")
-    data_loader.load_data()
-    print(data_loader.summary_statistics())
+    data_loader = BondDataLoader(data_path="/Users/mma0277/Documents/Development/investment_analysis/tt-investment-analysis/data/project_work/bond_yields_ns_params_shifted_1.parquet")
+    # print(data_loader.summary_statistics())
+    # read in the yaml file to get the feature columns and the target columns
+    config = yaml.safe_load(Path("/Users/mma0277/Documents/Development/investment_analysis/tt-investment-analysis/data/project_work/features_selected.yaml").read_text())
+    target_vars = config['dependent_variables']
+    features = config['one-day-ahead']['max_features']
+    data_loader.load_data(x=features, y=target_vars)
     windows = data_loader.get_time_windows(window_size=252, min_window_size=100)
     print(f"First 5 time windows: {windows[:5]}")
-    x, y = data_loader.get_window_data(start_idx=0, end_idx=252, target_column='DGS10', feature_columns=['A939RX0Q048SBEA', 'spread_DGS1MO_lag_200_day_avg_vs_DGS3_lag_200_day_avg'])
+    print(f"Target Variables: {target_vars}")
+    print(f"Feature Variables: {features}")
+    x, y = data_loader.get_window_data(start_idx=0, end_idx=252, target_columns=target_vars, feature_columns=features)
     print(f"Features shape: {x.shape}, Target shape: {y.shape}")
-    pred_features = data_loader.get_prediction_point(idx=252, feature_columns=['A939RX0Q048SBEA', 'spread_DGS1MO_lag_200_day_avg_vs_DGS3_lag_200_day_avg'])
+    pred_features = data_loader.get_prediction_point(idx=252, feature_columns=features)
     print(f"Prediction features: {pred_features}")
-    actual_value = data_loader.get_actual_value(idx=252, target_column='DGS10')
+    actual_value = data_loader.get_actual_value(idx=252, target_columns=target_vars)
     print(f"Actual target value: {actual_value}")
     pred_date = data_loader.get_date_for_index(idx=252)
     print(f"Prediction date: {pred_date}")
