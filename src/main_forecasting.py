@@ -26,6 +26,7 @@ import pandas as pd
 from data_loader import BondDataLoader
 from feature_manager import FeatureManager
 from gp_models import GaussianProcessEnsemble
+from bayesian_ridge_models import BayesianRidgeEnsemble
 from walk_forward import WalkForwardValidator
 
 
@@ -44,7 +45,7 @@ logger = logging.getLogger(__name__)
 class YieldForecastingPipeline:
     """Main pipeline class for bond yield forecasting."""
     
-    def __init__(self, time_prediction: str, config_file: str, data_file:str,
+    def __init__(self, model_name: str, time_prediction: str, config_file: str, data_file:str,
                  train_window: int, min_train_window: int, retrain_interval: int,
                  selection_metric: str= 'train_cosine_distance') -> None:
         """
@@ -60,7 +61,16 @@ class YieldForecastingPipeline:
         # initialize components
         self.feature_manager = FeatureManager(features_config_path=config_file)
         self.data_loader = BondDataLoader(data_path=data_file)
-        self.gp_model = GaussianProcessEnsemble(selection_metric=selection_metric)
+        # check if model_name is valid
+        if model_name not in ['GP', 'BayesianRidge']:
+            raise ValueError("model_name must be either 'GP' or 'BayesianRidge'")
+
+        self.model_obj = GaussianProcessEnsemble(selection_metric=selection_metric) if model_name == 'GP' else BayesianRidgeEnsemble(selection_metric=selection_metric)
+        logger.info(
+            f"Initialized forecasting pipeline for time prediction {self.time_prediction} "
+            f"with train window {self.train_window}, min train window {self.min_train_window}, "
+            f"retrain interval {self.retrain_interval}, and selection metric {selection_metric}"
+        )
         
     def run_pipeline(self) -> None:
         """
@@ -78,7 +88,7 @@ class YieldForecastingPipeline:
 
         # Set up walk-forward validator
         wf_validator = WalkForwardValidator(
-            model=self.gp_model,
+            model=self.model_obj,
             data_loader = self.data_loader,
             feature_manager = self.feature_manager,
             time_prediction=self.time_prediction,
@@ -95,23 +105,32 @@ class YieldForecastingPipeline:
 
 if __name__ == "__main__":
     start_time = time.time()
-    time_prediction = 'seven-day-ahead'
+    # time_prediction = 'seven-day-ahead'
     config_file = '/Users/mma0277/Documents/Development/investment_analysis/tt-investment-analysis/data/project_work/features_selected.yaml'
-    data_file = "/Users/mma0277/Documents/Development/investment_analysis/tt-investment-analysis/data/project_work/bond_yields_ns_params_shifted_7.parquet"
-    train_window = 2000
-    min_train_window = 1000
-    retrain_interval = 30
-    selection_metric = 'train_cosine_distance'
-    pipeline = YieldForecastingPipeline(
-        time_prediction=time_prediction,
-        config_file=config_file,
-        data_file=data_file,
-        train_window=train_window,
-        min_train_window=min_train_window,
-        retrain_interval=retrain_interval,
-        selection_metric=selection_metric
-    )
-    pipeline.run_pipeline()
+    # data_file = "/Users/mma0277/Documents/Development/investment_analysis/tt-investment-analysis/data/project_work/bond_yields_ns_params_shifted_7.parquet"
+    train_window = 500
+    min_train_window = 400
+    retrain_interval = 7
+    selection_metric = 'train_r2_avg'
+    file_num = [1, 7, 30, 60]
+    time_prediction_list = [
+        'one-day-ahead', 'seven-day-ahead', 'thirty-day-ahead', 'sixty-day-ahead'
+    ]
+    for day, time_prediction in zip(file_num, time_prediction_list):
+        data_file = f"/Users/mma0277/Documents/Development/investment_analysis/tt-investment-analysis/data/project_work/bond_yields_ns_params_shifted_{day}.parquet"
+        print(f"Running pipeline for {time_prediction} using data file {data_file}")
+        pipeline = YieldForecastingPipeline(
+            model_name='BayesianRidge',
+            time_prediction=time_prediction,
+            config_file=config_file,
+            data_file=data_file,
+            train_window=train_window,
+            min_train_window=min_train_window,
+            retrain_interval=retrain_interval,
+            selection_metric=selection_metric
+        )
+        pipeline.run_pipeline()
+
     end_time = time.time()
     # convert time to hours
     hours = (end_time - start_time) / 3600

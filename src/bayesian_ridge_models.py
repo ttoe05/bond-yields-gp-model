@@ -114,7 +114,7 @@ class BayesianRidgeEnsemble:
         """Compute the R-squared score between two flattened vectors."""
         return r2_score(a.flatten(), b.flatten())
 
-    def train_models(self, x: pd.DataFrame, y: pd.Series):
+    def train_historical(self, x: pd.DataFrame, y: pd.Series):
         """
         Train all Bayesian Ridge models with different alpha values.
         
@@ -126,10 +126,17 @@ class BayesianRidgeEnsemble:
         
         for alpha_name in self.alpha_configs.keys():
             model = self.create_bayesian_ridge_model(alpha_name=alpha_name)
+            # get the standard deviation of the target variable
+            target_std = np.std(y.to_numpy(), axis=0)
+            # self.model_scores[alpha_name] = {'target_std': target_std}
             
             # Fit model
             model.fit(x, y)
             y_pred = model.predict(x)
+            # get the residuals of the training data
+            residuals = np.abs(y.to_numpy() - y_pred)
+            # get the standard deviation of the residuals
+            residual_mean = np.mean(residuals, axis=0)
             
             # Calculate metrics
             metrics = {
@@ -137,6 +144,8 @@ class BayesianRidgeEnsemble:
                 'train_euclidean_rmse': self._euclidean_rmse_avg(y.to_numpy(), y_pred),
                 'train_r2_avg': self.rsquared_score_avg(y.to_numpy(), y_pred),
                 'train_r2_flat': self.rsquared_flat(y.to_numpy(), y_pred),
+                'residual_mean': residual_mean,
+                'target_std': target_std,
                 'model': model
             }
             
@@ -148,8 +157,11 @@ class BayesianRidgeEnsemble:
         self._select_best_model()
         logger.info(f"Best alpha: {self.best_alpha_name}")
 
+
     def _select_best_model(self) -> None:
-        """Select the best model based on the selection metric."""
+        """
+        Select the best model based on the selection metric.
+        """
         if self.selection_metric == 'train_cosine_distance':
             self.best_alpha_name = max(self.model_scores, 
                                      key=lambda x: self.model_scores[x]['train_cosine_distance'])
@@ -208,12 +220,15 @@ class BayesianRidgeEnsemble:
         
         # For Bayesian Ridge, generate samples by adding noise to predictions
         # This is a simplified approach - in practice you'd use the posterior distribution
-        noise_scale = 0.01  # Small noise scale for uncertainty
-        
+        # get the residual std deviation for the best model
+        noise_scale = self.model_scores[self.best_alpha_name]['target_std']  # Small noise scale for uncertainty
+        logger.info(f"Shape of y_pred: {y_pred.shape}, noise_scale: {noise_scale}")
+        mean_expanded = y_pred[..., np.newaxis]  # Shape (1, 4, 1)
+        std_expanded = noise_scale[..., np.newaxis] # Shape (1, 4, 1)
         samples = np.random.normal(
-            loc=y_pred, 
-            scale=noise_scale, 
-            size=(n_samples, *y_pred.shape)
+            loc=mean_expanded,
+            scale=std_expanded,
+            size=(y_pred.shape[0], y_pred.shape[1], n_samples)
         )
         
         return samples
@@ -231,7 +246,11 @@ class BayesianRidgeEnsemble:
         summary = {
             "best_alpha": self.best_alpha_name,
             "best_alpha_value": self.alpha_configs[self.best_alpha_name],
-            "model_scores": self.model_scores,
+            "model_scores": {'train_cosine_distance': self.model_scores[self.best_alpha_name]['train_cosine_distance'],
+                             'train_euclidean_rmse': self.model_scores[self.best_alpha_name]['train_euclidean_rmse'],
+                             'train_r2_avg': self.model_scores[self.best_alpha_name]['train_r2_avg'],
+                             'train_r2_flat': self.model_scores[self.best_alpha_name]['train_r2_flat']},
+            "residual_mean": self.model_scores[self.best_alpha_name]['residual_mean'],
             "available_alphas": list(self.alpha_configs.keys()),
             "n_features": None,
             "n_training_samples": None

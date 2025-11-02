@@ -61,7 +61,7 @@ def test_bayesian_ridge_integration():
         
         # Train models
         logger.info("Training Bayesian Ridge models...")
-        br_ensemble.train_models(x=x_train, y=y_train)
+        br_ensemble.train_historical(x=x_train, y=y_train)
         
         # Make predictions
         y_pred, std_val = br_ensemble.predict_val(x=pred_features, return_std=True)
@@ -70,6 +70,7 @@ def test_bayesian_ridge_integration():
         logger.info(f"Prediction: {y_pred}")
         logger.info(f"Actual: {actual_value.to_numpy()}")
         logger.info(f"Y samples shape: {y_samples.shape}")
+        logger.info(f"best model residual std: {br_ensemble.model_scores[br_ensemble.best_alpha_name]['residual_std']}")
         
         # Get model summary
         model_summary = br_ensemble.get_model_summary()

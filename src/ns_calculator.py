@@ -31,8 +31,8 @@ def get_list_of_sample_files(time_prediction: str, yields: bool = False) -> list
         list[str]: List of file paths to sample files.
     """
     # check the time_prediction passed in is valid
-    if time_prediction not in ['one-day-ahead', 'seven-day-ahead', 'fourteen-day-ahead', 'thirty-day-ahead']:
-        raise ValueError(f"Invalid time_prediction: {time_prediction}. Must be one of 'one-day-ahead', 'seven-day-ahead', 'fourteen-day-ahead', 'thirty-day-ahead'.")
+    if time_prediction not in ['one-day-ahead', 'seven-day-ahead', 'sixty-day-ahead', 'thirty-day-ahead']:
+        raise ValueError(f"Invalid time_prediction: {time_prediction}. Must be one of 'one-day-ahead', 'seven-day-ahead', 'sixty-day-ahead', 'thirty-day-ahead'.")
     if yields:
         sample_dir = f"results/{time_prediction}/samples/yields/"
     else:
@@ -166,5 +166,17 @@ def run_pipeline_transformations(time_prediction: str, max_workers: int=4) -> No
 
 if __name__ == "__main__":
     # pass the time prediction as an argument
-    time_prediction = sys.argv[1]
-    run_pipeline_transformations(time_prediction=time_prediction, max_workers=8)
+    try:
+        time_prediction = sys.argv[1]
+    except IndexError:
+        time_prediction = None
+    if time_prediction is None:
+        # run for all time predictions
+        time_prediction_list = [
+            'one-day-ahead', 'seven-day-ahead', 'thirty-day-ahead', 'sixty-day-ahead'
+            ]
+        for time_prediction in time_prediction_list:
+            run_pipeline_transformations(time_prediction=time_prediction, max_workers=8)
+    else:
+        run_pipeline_transformations(time_prediction=time_prediction, max_workers=8)
+    print("All transformations completed.")

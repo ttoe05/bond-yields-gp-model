@@ -67,29 +67,19 @@ class GaussianProcessEnsemble:
                                            length_scale_bounds=(1e-2, 1e2),
                                            periodicity_bounds=(1e-2, 1e2)) +
                               WhiteKernel(noise_level=1e-5)),
-            
-            'RBF': (ConstantKernel(1.0, (1e-3, 1e3)) * 
-                   RBF(length_scale=1.0, length_scale_bounds=(1e-2, 1e2)) +
-                   WhiteKernel(noise_level=1e-5)),
-            
-            # 'WhiteKernel': WhiteKernel(noise_level=1.0, noise_level_bounds=(1e-10, 1e+1)),
-            
-            # 'Matern': (ConstantKernel(1.0, (1e-3, 1e3)) *
-            #           Matern(length_scale=1.0, length_scale_bounds=(1e-2, 1e2), nu=1.5) +
-            #           WhiteKernel(noise_level=1e-5)),
-            
-            'RationalQuadratic': (ConstantKernel(1.0, (1e-3, 1e3)) *
-                                 RationalQuadratic(length_scale=1.0, alpha=1.0,
-                                                 length_scale_bounds=(1e-2, 1e2),
-                                                 alpha_bounds=(1e-5, 1e5)) +
-                                 WhiteKernel(noise_level=1e-5)),
-            
-        #     'Combined_RBF_ExpSine': (ConstantKernel(1.0, (1e-3, 1e3)) *
-        #                             RBF(length_scale=1.0, length_scale_bounds=(1e-2, 1e2)) *
-        #                             ExpSineSquared(length_scale=1.0, periodicity=1.0,
-        #                                          length_scale_bounds=(1e-2, 1e2),
-        #                                          periodicity_bounds=(1e-2, 1e2)) +
-        #                             WhiteKernel(noise_level=1e-5))
+
+            'Periodic': (ConstantKernel(1.0, (1e-3, 1e3)) *
+                            ExpSineSquared(length_scale=2.0, periodicity=5.0,
+                                        length_scale_bounds=(1e-3, 1e3),
+                                        periodicity_bounds=(1.0, 10.0)) +
+                            WhiteKernel(noise_level=1e-6)),
+
+            'QuasiPeriodic': (ConstantKernel(1.0, (1e-3, 1e3)) *
+                             RBF(length_scale=5.0, length_scale_bounds=(1e-3, 1e3)) *
+                             ExpSineSquared(length_scale=1.0, periodicity=5.0,
+                                          length_scale_bounds=(1e-2, 1e2),
+                                          periodicity_bounds=(1.0, 10.0)) +
+                             WhiteKernel(noise_level=1e-6))
         }
         
         logger.info(f"Created {len(kernels)} kernel configurations")
@@ -124,16 +114,20 @@ class GaussianProcessEnsemble:
         return gp_model
 
     def _cosine_distance_avg(self, a: np.ndarray, b: np.ndarray) -> float:
-        """Compute the cosine distance between two vectors."""
+        """
+        Compute the cosine distance between two vectors.
+        """
         a_norm = a / np.linalg.norm(a, axis=1, keepdims=True)
         b_norm = b / np.linalg.norm(b, axis=1, keepdims=True)
         cosine_similarity = np.sum(a_norm * b_norm, axis=1)
         return np.mean(cosine_similarity)
 
+
     def _euclidean_rmse_avg(self, a: np.ndarray, b: np.ndarray) -> float:
         """Compute the Euclidean RMSE between two vectors."""
         errors = np.linalg.norm(a - b, axis=1)
         return np.sqrt(np.mean(errors ** 2))
+
 
     def rsquared_score_avg(self, a: np.ndarray, b: np.ndarray) -> float:
         """Compute the R-squared score between two vectors."""
@@ -178,7 +172,7 @@ class GaussianProcessEnsemble:
         return metrics
 
 
-    def train_kernels(self, x: pd.DataFrame, y: pd.Series):
+    def train_historical(self, x: pd.DataFrame, y: pd.Series):
         """
         Train all the Gaussian Process models using the different kernels concurrently.
         Returns:
@@ -342,7 +336,7 @@ if __name__ == "__main__":
     pred_date = data_loader.get_date_for_index(idx=windows[-2][1])
     # create the gaussian ensemble model
     gpr_ensemble = GaussianProcessEnsemble()
-    gpr_ensemble.train_kernels(x=x_train, y=y_train)
+    gpr_ensemble.train_historical(x=x_train, y=y_train)
 
     y_pred, std_val = gpr_ensemble.predict_val(x=pred_features, return_std=False)
     y_samples = gpr_ensemble.predict_val_distribution(x=pred_features, n_samples=1000)

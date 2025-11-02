@@ -12,6 +12,7 @@ import gc
 from data_loader import BondDataLoader
 from feature_manager import FeatureManager
 from gp_models import GaussianProcessEnsemble
+from bayesian_ridge_models import BayesianRidgeEnsemble
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
@@ -22,7 +23,7 @@ class WalkForwardValidator:
     """Walk-forward validation framework for time series forecasting."""
     
     def __init__(self,
-                 model: GaussianProcessEnsemble,
+                 model: GaussianProcessEnsemble | BayesianRidgeEnsemble,
                  data_loader: BondDataLoader,
                  feature_manager: FeatureManager,
                  time_prediction: str,
@@ -55,6 +56,7 @@ class WalkForwardValidator:
         self.model_retrain_counter = 0
         self.model = model
         self.persist_samples = persist_samples
+        self.feature_importance = None
 
         # set up sample directory if true
         if self.persist_samples:
@@ -105,7 +107,8 @@ class WalkForwardValidator:
             )
             logger.info(f"Running retrain for window {x_train.index.min()}-{x_train.index.max()}")
             # train the model
-            self.model.train_kernels(x=x_train, y=y_train)
+            self.model.train_historical(x=x_train, y=y_train)
+            self.feature_importance = self.model.get_feature_importance_proxy(X=x_train)
             # Reset counter
             self.model_retrain_counter = 0
             if self.initial_run:
@@ -129,19 +132,33 @@ class WalkForwardValidator:
         # Persist samples if needed
         if self.persist_samples:
             # Convert the 1, 4, 1000 array to a dataframe and save as parquet
+
             samples_df = pd.DataFrame(prediction_samples.reshape(-1, prediction_samples.shape[-1]).T,
                                       columns=target_columns)
-            samples_df.to_parquet(self.sample_dir / f"{predict_date}.parquet")
 
-        result = {
-            'date': predict_date,
-            'actual_value': list(actual_value.to_numpy()),
-            'prediction': list(prediction_val),
-            'prediction_std': list(prediction_std),
-            'best_kernel': self.model.best_kernel_name,
-            'retrain': retrain,
-        }
+            samples_df.to_parquet(self.sample_dir / f"{predict_date}.parquet")
+        if isinstance(self.model, GaussianProcessEnsemble):
+            result = {
+                'date': predict_date,
+                'actual_value': list(actual_value.to_numpy()),
+                'prediction': list(prediction_val),
+                'prediction_std': list(prediction_std),
+                'best_kernel': self.model.best_kernel_name,
+                'retrain': retrain,
+            }
+        else:  # BayesianRidgeEnsemble
+            result = {
+                'date': predict_date,
+                'actual_value': list(actual_value.to_numpy()),
+                'prediction': list(prediction_val),
+                'prediction_std': list(prediction_std),
+                'best_alpha': self.model.best_alpha_name,
+                'retrain': retrain,
+            }
         model_summary = self.model.get_model_summary()
+        model_summary['date'] = predict_date
+        # get the feature importance
+        model_summary['feature_importance'] = self.feature_importance.to_dict()
         # Increment retrain counter
         self.model_retrain_counter += 1
 
@@ -171,7 +188,7 @@ class WalkForwardValidator:
         target_columns = self.feature_manager.get_dependent_variables()
         
         # Get time windows
-        windows = self.data_loader.get_time_windows(window_size=self.window_size, min_window_size=self.min_window_size)[-1:]
+        windows = self.data_loader.get_time_windows(window_size=self.window_size, min_window_size=self.min_window_size)
         logger.info(f"Running {len(windows)} predictions with {len(features)} features")
         # Run predictions
         for i, (train_start_idx, train_end_idx) in enumerate(windows):
@@ -202,14 +219,17 @@ class WalkForwardValidator:
         Args:
             filepath: Path to save results
         """
+
+        results_df = pd.DataFrame(self.results_list)
+        model_summary_df = pd.DataFrame(self.model_summaries)
+        # create file path if not exists
+        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         try:
-            results_df = pd.DataFrame(self.results_list)
-            model_summary_df = pd.DataFrame(self.model_summaries)
-            # create file path if not exists
-            Path(filepath).parent.mkdir(parents=True, exist_ok=True)
             results_df.to_parquet(f'{filepath}/{self.time_prediction}_results.parquet', index=False)
-            # model_summary_df.to_parquet(f'{filepath}/{self.time_prediction}_model_summary.parquet', index=False)
-            logger.info(f"Results exported to {filepath}")
         except Exception as e:
             logger.error(f"Error exporting results: {str(e)}")
-            raise
+        try:
+            model_summary_df.to_parquet(f'{filepath}/{self.time_prediction}_model_summary.parquet', index=False)
+            logger.info(f"Results exported to {filepath}")
+        except Exception as e:
+            logger.error(f"Error exporting model summary: {str(e)}")
