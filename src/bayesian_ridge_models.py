@@ -202,7 +202,7 @@ class BayesianRidgeEnsemble:
         else:
             return y_pred, None
 
-    def predict_val_distribution(self, x: pd.DataFrame, n_samples: int = 1000) -> np.ndarray:
+    def predict_val_distribution(self, x: pd.DataFrame, y: pd.Series, n_samples: int = 1000) -> np.ndarray:
         """
         Generate samples from the predictive distribution.
 
@@ -221,17 +221,10 @@ class BayesianRidgeEnsemble:
         # For Bayesian Ridge, generate samples by adding noise to predictions
         # This is a simplified approach - in practice you'd use the posterior distribution
         # get the residual std deviation for the best model
-        noise_scale = self.model_scores[self.best_alpha_name]['target_std']  # Small noise scale for uncertainty
-        logger.info(f"Shape of y_pred: {y_pred.shape}, noise_scale: {noise_scale}")
-        mean_expanded = y_pred[..., np.newaxis]  # Shape (1, 4, 1)
-        std_expanded = noise_scale[..., np.newaxis] # Shape (1, 4, 1)
-        samples = np.random.normal(
-            loc=mean_expanded,
-            scale=std_expanded,
-            size=(y_pred.shape[0], y_pred.shape[1], n_samples)
-        )
-        
-        return samples
+        covar = y.cov()
+        y_samples = np.random.multivariate_normal(y_pred, covar, n_samples)
+        return y_samples.T[np.newaxis, :, :]
+
 
     def get_model_summary(self) -> Dict[str, Any]:
         """

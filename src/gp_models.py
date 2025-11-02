@@ -68,18 +68,28 @@ class GaussianProcessEnsemble:
                                            periodicity_bounds=(1e-2, 1e2)) +
                               WhiteKernel(noise_level=1e-5)),
 
-            'Periodic': (ConstantKernel(1.0, (1e-3, 1e3)) *
-                            ExpSineSquared(length_scale=2.0, periodicity=5.0,
-                                        length_scale_bounds=(1e-3, 1e3),
-                                        periodicity_bounds=(1.0, 10.0)) +
-                            WhiteKernel(noise_level=1e-6)),
+            'RBF': (ConstantKernel(1.0, (1e-3, 1e3)) *
+                   RBF(length_scale=1.0, length_scale_bounds=(1e-2, 1e2)) +
+                   WhiteKernel(noise_level=1e-5)),
+
+            # 'WhiteKernel': WhiteKernel(noise_level=1.0, noise_level_bounds=(1e-10, 1e+1)),
+
+            # 'Matern': (ConstantKernel(1.0, (1e-3, 1e3)) *
+            #           Matern(length_scale=1.0, length_scale_bounds=(1e-2, 1e2), nu=1.5) +
+            #           WhiteKernel(noise_level=1e-5)),
+
+            'RationalQuadratic': (ConstantKernel(1.0, (1e-3, 1e3)) *
+                                 RationalQuadratic(length_scale=1.0, alpha=1.0,
+                                                 length_scale_bounds=(1e-2, 1e2),
+                                                 alpha_bounds=(1e-5, 1e5)) +
+                                 WhiteKernel(noise_level=1e-5)),
 
             'QuasiPeriodic': (ConstantKernel(1.0, (1e-3, 1e3)) *
-                             RBF(length_scale=5.0, length_scale_bounds=(1e-3, 1e3)) *
-                             ExpSineSquared(length_scale=1.0, periodicity=5.0,
+                             RBF(length_scale=1.0, length_scale_bounds=(1e-2, 1e2)) *
+                             ExpSineSquared(length_scale=1.0, periodicity=1.0,
                                           length_scale_bounds=(1e-2, 1e2),
-                                          periodicity_bounds=(1.0, 10.0)) +
-                             WhiteKernel(noise_level=1e-6))
+                                          periodicity_bounds=(1e-2, 1e2)) +
+                             WhiteKernel(noise_level=1e-5))
         }
         
         logger.info(f"Created {len(kernels)} kernel configurations")
@@ -177,6 +187,7 @@ class GaussianProcessEnsemble:
         Train all the Gaussian Process models using the different kernels concurrently.
         Returns:
         """
+        target_std = np.std(y.to_numpy(), axis=0)
         tasks = [(x, y, kernel_name) for kernel_name in self.kernels.keys()]
         results = []
         with ProcessPoolExecutor(max_workers=self.n_jobs) as executor:
@@ -192,6 +203,7 @@ class GaussianProcessEnsemble:
             'train_r2_avg': x['train_r2_avg'],
             'train_r2_flat': x['train_r2_flat'],
             'log_marginal_likelihood': x['log_marginal_likelihood'],
+            'target_std': target_std,
             'model': x['model']
         } for x in results}
         # select the best model
@@ -241,7 +253,7 @@ class GaussianProcessEnsemble:
             y_pred = self.best_model.predict(x, return_std=False)
             return y_pred, None
 
-    def predict_val_distribution(self, x: pd.DataFrame, n_samples: int = 1000) -> np.ndarray:
+    def predict_val_distribution(self, x: pd.DataFrame, y: pd.Series, n_samples: int = 1000) -> np.ndarray:
         """
         Generate samples from the predictive distribution.
 
@@ -250,8 +262,15 @@ class GaussianProcessEnsemble:
             n_samples: Number of samples to draw
         """
         self._select_best_kernel()
+        y_pred = self.best_model.predict(x, return_std=False)[0]
+        # get the covariance matrix of the y values
+        covar = y.cov()
+        # noise_scale = self.kernel_scores[self.best_kernel_name]['target_std']
+        # kernel_val = self.best_model.kernel_
+        y_samples = np.random.multivariate_normal(mean=y_pred, cov=covar, size=n_samples)
+        y_samples = y_samples.T[ np.newaxis, :, :]
 
-        y_samples = self.best_model.sample_y(x, n_samples=n_samples, random_state=self.random_state)
+        # y_samples = self.best_model.sample_y(x, n_samples=n_samples, random_state=self.random_state)
         return y_samples
     
     def get_model_summary(self) -> Dict[str, Any]:
@@ -268,8 +287,8 @@ class GaussianProcessEnsemble:
             "best_kernel": self.best_kernel_name,
             "best_kernel_params": str(self.best_model.kernel_),
             "log_marginal_likelihood": self.best_model.log_marginal_likelihood(),
-            "kernel_scores": self.kernel_scores,
-            "available_kernels": list(self.kernels.keys()),
+            # "kernel_scores": self.kernel_scores,
+            # "available_kernels": list(self.kernels.keys()),
             "n_features": self.best_model.X_train_.shape[1] if hasattr(self.best_model, 'X_train_') else None,
             "n_training_samples": self.best_model.X_train_.shape[0] if hasattr(self.best_model, 'X_train_') else None
         }

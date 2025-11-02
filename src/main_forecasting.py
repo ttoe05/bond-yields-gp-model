@@ -106,10 +106,10 @@ class YieldForecastingPipeline:
 if __name__ == "__main__":
     start_time = time.time()
     # time_prediction = 'seven-day-ahead'
-    config_file = '/Users/mma0277/Documents/Development/investment_analysis/tt-investment-analysis/data/project_work/features_selected.yaml'
+    config_file = 'data/features_selected.yaml'
     # data_file = "/Users/mma0277/Documents/Development/investment_analysis/tt-investment-analysis/data/project_work/bond_yields_ns_params_shifted_7.parquet"
-    train_window = 500
-    min_train_window = 400
+    train_window = 300
+    min_train_window = 200
     retrain_interval = 7
     selection_metric = 'train_r2_avg'
     file_num = [1, 7, 30, 60]
@@ -117,10 +117,10 @@ if __name__ == "__main__":
         'one-day-ahead', 'seven-day-ahead', 'thirty-day-ahead', 'sixty-day-ahead'
     ]
     for day, time_prediction in zip(file_num, time_prediction_list):
-        data_file = f"/Users/mma0277/Documents/Development/investment_analysis/tt-investment-analysis/data/project_work/bond_yields_ns_params_shifted_{day}.parquet"
+        data_file = f"data/bond_yields_ns_params_shifted_{day}.parquet"
         print(f"Running pipeline for {time_prediction} using data file {data_file}")
         pipeline = YieldForecastingPipeline(
-            model_name='BayesianRidge',
+            model_name='GP',
             time_prediction=time_prediction,
             config_file=config_file,
             data_file=data_file,

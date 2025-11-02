@@ -95,16 +95,16 @@ class WalkForwardValidator:
         Returns:
             Dictionary with prediction results
         """
+        # Get training data
+        x_train, y_train = self.data_loader.get_window_data(
+            start_idx=train_start_idx,
+            end_idx=train_end_idx,
+            target_columns=target_columns,
+            feature_columns=features
+        )
         # Check if a retrain is needed
         if self.model_retrain_counter == self.model_retrain_interval or self.initial_run:
             retrain = True
-            # Get training data
-            x_train, y_train = self.data_loader.get_window_data(
-                start_idx=train_start_idx,
-                end_idx=train_end_idx,
-                target_columns=target_columns,
-                feature_columns=features
-            )
             logger.info(f"Running retrain for window {x_train.index.min()}-{x_train.index.max()}")
             # train the model
             self.model.train_historical(x=x_train, y=y_train)
@@ -128,7 +128,10 @@ class WalkForwardValidator:
         # Make prediction
         prediction_val, prediction_std = self.model.predict_val(x=x_predict, return_std=True)
         # Make prediciton samples
-        prediction_samples = self.model.predict_val_distribution(x=x_predict, n_samples=1000)
+
+        prediction_samples = self.model.predict_val_distribution(x=x_predict, y=y_train, n_samples=1000)
+
+
         # Persist samples if needed
         if self.persist_samples:
             # Convert the 1, 4, 1000 array to a dataframe and save as parquet
