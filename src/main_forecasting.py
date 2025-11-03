@@ -106,10 +106,10 @@ class YieldForecastingPipeline:
 if __name__ == "__main__":
     start_time = time.time()
     # time_prediction = 'seven-day-ahead'
-    config_file = 'data/features_selected.yaml'
+    config_file = 'data/features_selected2.yaml'
     # data_file = "/Users/mma0277/Documents/Development/investment_analysis/tt-investment-analysis/data/project_work/bond_yields_ns_params_shifted_7.parquet"
-    train_window = 300
-    min_train_window = 200
+    train_window = 450
+    min_train_window = 300
     retrain_interval = 7
     selection_metric = 'train_r2_avg'
     file_num = [1, 7, 30, 60]

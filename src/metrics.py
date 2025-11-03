@@ -136,7 +136,7 @@ class ForecastingMetrics:
             }
             sns.lineplot(plot_df, x='date', y='value', hue='type',
                          palette=color_palette, ax=axes[i])
-            axes[i].set_title(f'Confidence Intervals for {col}')
+            axes[i].set_title(f'Confidence Intervals for {col} - {self.time_prediction}')
             axes[i].set_xlabel('Date')
             axes[i].set_ylabel('Yield (%)')
             axes[i].legend()
@@ -155,7 +155,7 @@ class ForecastingMetrics:
         axes = axes.flatten()
         for i, col in enumerate(self.dependent_varaibles):
             sns.lineplot(data=self.actuals_df, x=self.actuals_df.index.to_timestamp(), y=col, ax=axes[i])
-            axes[i].set_title(f'Actual Yields for {col}')
+            axes[i].set_title(f'Actual Yields for {col} - {self.time_prediction}')
             axes[i].set_xlabel('Date')
             axes[i].set_ylabel('Yield (%)')
         plt.tight_layout()
@@ -164,7 +164,7 @@ class ForecastingMetrics:
 
 
 if __name__ == "__main__":
-    forecasts = ForecastingMetrics(time_prediction='sixty-day-ahead',
+    forecasts = ForecastingMetrics(time_prediction='one-day-ahead',
                                    actuals_file="data/fred_prorcessed_daily.parquet")
 
     print(forecasts.forecasts_df.head())

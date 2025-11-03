@@ -126,7 +126,7 @@ class WalkForwardValidator:
         # Get prediction date
         predict_date = self.data_loader.get_date_for_index(predict_idx)
         # Make prediction
-        prediction_val, prediction_std = self.model.predict_val(x=x_predict, return_std=True)
+        prediction_val = self.model.predict_val(x=x_predict)
         # Make prediciton samples
 
         prediction_samples = self.model.predict_val_distribution(x=x_predict, y=y_train, n_samples=1000)
@@ -145,7 +145,7 @@ class WalkForwardValidator:
                 'date': predict_date,
                 'actual_value': list(actual_value.to_numpy()),
                 'prediction': list(prediction_val),
-                'prediction_std': list(prediction_std),
+                # 'prediction_std': list(prediction_std),
                 'best_kernel': self.model.best_kernel_name,
                 'retrain': retrain,
             }
@@ -154,7 +154,7 @@ class WalkForwardValidator:
                 'date': predict_date,
                 'actual_value': list(actual_value.to_numpy()),
                 'prediction': list(prediction_val),
-                'prediction_std': list(prediction_std),
+                # 'prediction_std': list(prediction_std),
                 'best_alpha': self.model.best_alpha_name,
                 'retrain': retrain,
             }

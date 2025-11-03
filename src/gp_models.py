@@ -10,6 +10,7 @@ from tqdm import tqdm
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.multioutput import MultiOutputRegressor
 from sklearn.gaussian_process.kernels import (
     DotProduct, ExpSineSquared, RBF, WhiteKernel, 
     ConstantKernel, Matern, RationalQuadratic
@@ -44,15 +45,15 @@ class GaussianProcessEnsemble:
         self.selection_metric = selection_metric
         self.random_state = random_state
         self.kernels = None
-        self.fitted_models: Dict[str, GaussianProcessRegressor] = {}
+        self.fitted_models: Dict[str, MultiOutputRegressor] = {}
         self.kernel_scores: Dict[str, Dict[str, float]] = {}
         self.best_kernel_name: Optional[str] = None
         self.n_jobs = n_jobs
-        self.best_model: Optional[GaussianProcessRegressor] = None
+        self.best_model: Optional[MultiOutputRegressor] = None
         self._create_kernel_configurations()
 
 
-    def _create_kernel_configurations(self) -> Dict[str, Any]:
+    def _create_kernel_configurations(self) -> None:
         """
         Create different kernel configurations for testing.
         
@@ -163,20 +164,21 @@ class GaussianProcessEnsemble:
         x_copy = x.copy()
         y_copy = y.copy()
         model = self.create_gp_model(kernel_name=kernel_name)
+        model = MultiOutputRegressor(model)
 
         # Fit model to get additional metrics
         model.fit(x_copy, y_copy)
         y_pred = model.predict(x_copy)
         # get the euclidain distance between y and y_pred
 
-
+        estimators = model.estimators_
         metrics = {
             'kernel_name': kernel_name,
             'train_cosine_distance': self._cosine_distance_avg(y.to_numpy(), y_pred),
             'train_euclidean_rmse': self._euclidean_rmse_avg(y.to_numpy(), y_pred),
             'train_r2_avg': self.rsquared_score_avg(y.to_numpy(), y_pred),
             'train_r2_flat': self.rsquared_flat(y.to_numpy(), y_pred),
-            'log_marginal_likelihood': model.log_marginal_likelihood(),
+            'log_marginal_likelihood': [estimator.log_marginal_likelihood() for estimator in estimators],
             'model': model,
         }
         return metrics
@@ -233,7 +235,7 @@ class GaussianProcessEnsemble:
         self.best_model = self.kernel_scores[self.best_kernel_name]['model']
 
     
-    def predict_val(self, x: pd.DataFrame, return_std: bool = True) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    def predict_val(self, x: pd.DataFrame) -> np.ndarray:
         """
         Make predictions with uncertainty quantification.
         
@@ -246,12 +248,11 @@ class GaussianProcessEnsemble:
         """
         # self._select_best_kernel()
         
-        if return_std:
-            y_pred, y_std = self.best_model.predict(x, return_std=True)
-            return y_pred, y_std
-        else:
-            y_pred = self.best_model.predict(x, return_std=False)
-            return y_pred, None
+
+        return self.best_model.predict(x)
+
+
+
 
     def predict_val_distribution(self, x: pd.DataFrame, y: pd.Series, n_samples: int = 1000) -> np.ndarray:
         """
@@ -262,7 +263,7 @@ class GaussianProcessEnsemble:
             n_samples: Number of samples to draw
         """
         self._select_best_kernel()
-        y_pred = self.best_model.predict(x, return_std=False)[0]
+        y_pred = self.best_model.predict(x)[0]
         # get the covariance matrix of the y values
         covar = y.cov()
         # noise_scale = self.kernel_scores[self.best_kernel_name]['target_std']
@@ -282,11 +283,12 @@ class GaussianProcessEnsemble:
         """
         if self.best_model is None:
             return {"status": "No model fitted"}
-        
+
+        models = self.best_model.estimators_
         summary = {
             "best_kernel": self.best_kernel_name,
-            "best_kernel_params": str(self.best_model.kernel_),
-            "log_marginal_likelihood": self.best_model.log_marginal_likelihood(),
+            "best_kernel_params": [str(model.kernel_) for model in models],
+            "log_marginal_likelihood": [model.log_marginal_likelihood() for model in models],
             # "kernel_scores": self.kernel_scores,
             # "available_kernels": list(self.kernels.keys()),
             "n_features": self.best_model.X_train_.shape[1] if hasattr(self.best_model, 'X_train_') else None,
@@ -311,21 +313,24 @@ class GaussianProcessEnsemble:
         
         # For GP models, we can use the kernel's characteristic length scales
         # as a proxy for feature importance (smaller length scale = more important)
-        
-        if hasattr(self.best_model.kernel_, 'length_scale'):
-            length_scales = self.best_model.kernel_.length_scale
-            
-            if hasattr(length_scales, '__len__') and len(length_scales) == X.shape[1]:
-                # Invert length scales: smaller length scale = higher importance
-                importance_scores = 1.0 / (length_scales + 1e-10)
-                importance_scores = importance_scores / importance_scores.sum()
-                
-                return pd.Series(importance_scores, index=X.columns, name='importance')
-        
-        # Fallback: uniform importance
-        logger.warning("Could not extract feature importance, using uniform weights")
-        uniform_importance = np.ones(X.shape[1]) / X.shape[1]
-        return pd.Series(uniform_importance, index=X.columns, name='importance')
+        model_list = self.best_model.estimators_
+        importance_scores_list = []
+        for model in model_list:
+            if hasattr(model.kernel_, 'length_scale'):
+                length_scales = self.best_model.kernel_.length_scale
+
+                if hasattr(length_scales, '__len__') and len(length_scales) == X.shape[1]:
+                    # Invert length scales: smaller length scale = higher importance
+                    importance_scores = 1.0 / (length_scales + 1e-10)
+                    importance_scores = importance_scores / importance_scores.sum()
+
+                    importance_scores_list.append(pd.Series(importance_scores, index=X.columns, name='importance'))
+
+            # Fallback: uniform importance
+            logger.warning("Could not extract feature importance, using uniform weights")
+            uniform_importance = np.ones(X.shape[1]) / X.shape[1]
+            importance_scores_list.append(pd.Series(uniform_importance, index=X.columns, name='importance'))
+        return pd.concat(importance_scores_list)
 
 
 if __name__ == "__main__":
