@@ -117,7 +117,7 @@ if __name__ == "__main__":
         'one-day-ahead', 'seven-day-ahead', 'thirty-day-ahead', 'sixty-day-ahead'
     ]
     for day, time_prediction in zip(file_num, time_prediction_list):
-        data_file = f"data/bond_yields_ns_params_shifted_{day}.parquet"
+        data_file = f"data/bond_yields_train_shifted_{day}.parquet"
         print(f"Running pipeline for {time_prediction} using data file {data_file}")
         pipeline = YieldForecastingPipeline(
             model_name='GP',

@@ -61,7 +61,7 @@ class WalkForwardValidator:
         # set up sample directory if true
         if self.persist_samples:
             # create the samples directory
-            self.sample_dir = Path(f'results/{self.time_prediction}/samples')
+            self.sample_dir = Path(f'results/{self.time_prediction}/samples/dgs_yields')
             Path(self.sample_dir).mkdir(parents=True, exist_ok=True)
         else:
             self.sample_dir = None
@@ -191,7 +191,7 @@ class WalkForwardValidator:
         target_columns = self.feature_manager.get_dependent_variables()
         
         # Get time windows
-        windows = self.data_loader.get_time_windows(window_size=self.window_size, min_window_size=self.min_window_size)
+        windows = self.data_loader.get_time_windows(window_size=self.window_size, min_window_size=self.min_window_size)[-15:]
         logger.info(f"Running {len(windows)} predictions with {len(features)} features")
         # Run predictions
         for i, (train_start_idx, train_end_idx) in enumerate(windows):
@@ -228,7 +228,7 @@ class WalkForwardValidator:
         # create file path if not exists
         Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         try:
-            results_df.to_parquet(f'{filepath}/{self.time_prediction}_results.parquet', index=False)
+            results_df.to_parquet(f'{filepath}/{self.time_prediction}_dgs_results.parquet', index=False)
         except Exception as e:
             logger.error(f"Error exporting results: {str(e)}")
         try:

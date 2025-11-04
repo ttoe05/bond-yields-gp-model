@@ -216,7 +216,7 @@ class BayesianRidgeEnsemble:
         if self.best_model is None:
             raise ValueError("Must train models first")
         
-        y_pred = self.best_model.predict(x)
+        y_pred = self.best_model.predict(x)[0]
         
         # For Bayesian Ridge, generate samples by adding noise to predictions
         # This is a simplified approach - in practice you'd use the posterior distribution
