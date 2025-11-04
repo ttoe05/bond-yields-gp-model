@@ -120,7 +120,7 @@ if __name__ == "__main__":
         data_file = f"data/bond_yields_train_shifted_{day}.parquet"
         print(f"Running pipeline for {time_prediction} using data file {data_file}")
         pipeline = YieldForecastingPipeline(
-            model_name='GP',
+            model_name='BayesianRidge',
             time_prediction=time_prediction,
             config_file=config_file,
             data_file=data_file,

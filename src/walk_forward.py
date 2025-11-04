@@ -191,7 +191,7 @@ class WalkForwardValidator:
         target_columns = self.feature_manager.get_dependent_variables()
         
         # Get time windows
-        windows = self.data_loader.get_time_windows(window_size=self.window_size, min_window_size=self.min_window_size)[-15:]
+        windows = self.data_loader.get_time_windows(window_size=self.window_size, min_window_size=self.min_window_size)
         logger.info(f"Running {len(windows)} predictions with {len(features)} features")
         # Run predictions
         for i, (train_start_idx, train_end_idx) in enumerate(windows):
