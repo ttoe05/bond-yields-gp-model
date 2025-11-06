@@ -192,10 +192,34 @@ class WalkForwardValidator:
         
         # Get time windows
         windows = self.data_loader.get_time_windows(window_size=self.window_size, min_window_size=self.min_window_size)
+        # clip window list based on the look ahead period
+        if self.time_prediction == 'one-day-ahead':
+            windows = windows[:-1]
+        elif self.time_prediction == 'seven-day-ahead':
+            windows = windows[:-7]
+        elif self.time_prediction == 'thirty-day-ahead':
+            windows = windows[:-30]
+        elif self.time_prediction == 'sixty-day-ahead':
+            windows = windows[:-60]
+        else:
+            raise ValueError(f"Invalid time_prediction: {self.time_prediction}")
+
+        # testing comment the following out when running the full validation
+        windows = windows[:1]
+
         logger.info(f"Running {len(windows)} predictions with {len(features)} features")
         # Run predictions
         for i, (train_start_idx, train_end_idx) in enumerate(windows):
-            predict_idx = train_end_idx
+            if self.time_prediction == 'one-day-ahead':
+                predict_idx = train_end_idx
+            elif self.time_prediction == 'seven-day-ahead':
+                predict_idx = train_end_idx + 6
+            elif self.time_prediction == 'thirty-day-ahead':
+                predict_idx = train_end_idx + 29
+            elif self.time_prediction == 'sixty-day-ahead':
+                predict_idx = train_end_idx + 59
+            else:
+                raise ValueError(f"Invalid time_prediction: {self.time_prediction}")
             
             # Safety check for prediction index
             if predict_idx >= len(self.data_loader.data):

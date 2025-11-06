@@ -47,7 +47,7 @@ class YieldForecastingPipeline:
     
     def __init__(self, model_name: str, time_prediction: str, config_file: str, data_file:str,
                  train_window: int, min_train_window: int, retrain_interval: int,
-                 selection_metric: str= 'train_cosine_distance') -> None:
+                 selection_metric: str= 'train_cosine_distance', n_jobs: int = None) -> None:
         """
         Initialize the forecasting pipeline with configuration.
         
@@ -65,7 +65,7 @@ class YieldForecastingPipeline:
         if model_name not in ['GP', 'BayesianRidge']:
             raise ValueError("model_name must be either 'GP' or 'BayesianRidge'")
 
-        self.model_obj = GaussianProcessEnsemble(selection_metric=selection_metric) if model_name == 'GP' else BayesianRidgeEnsemble(selection_metric=selection_metric)
+        self.model_obj = GaussianProcessEnsemble(selection_metric=selection_metric, n_jobs=n_jobs) if model_name == 'GP' else BayesianRidgeEnsemble(selection_metric=selection_metric)
         logger.info(
             f"Initialized forecasting pipeline for time prediction {self.time_prediction} "
             f"with train window {self.train_window}, min train window {self.min_train_window}, "
@@ -106,10 +106,10 @@ class YieldForecastingPipeline:
 if __name__ == "__main__":
     start_time = time.time()
     # time_prediction = 'seven-day-ahead'
-    config_file = 'data/features_selected2.yaml'
+    config_file = 'data/features_selected3.yaml'
     # data_file = "/Users/mma0277/Documents/Development/investment_analysis/tt-investment-analysis/data/project_work/bond_yields_ns_params_shifted_7.parquet"
-    train_window = 450
-    min_train_window = 300
+    train_window = 500
+    min_train_window = 400
     retrain_interval = 7
     selection_metric = 'train_r2_avg'
     file_num = [1, 7, 30, 60]
@@ -120,14 +120,15 @@ if __name__ == "__main__":
         data_file = f"data/bond_yields_train_shifted_{day}.parquet"
         print(f"Running pipeline for {time_prediction} using data file {data_file}")
         pipeline = YieldForecastingPipeline(
-            model_name='BayesianRidge',
+            model_name='GP',
             time_prediction=time_prediction,
             config_file=config_file,
             data_file=data_file,
             train_window=train_window,
             min_train_window=min_train_window,
             retrain_interval=retrain_interval,
-            selection_metric=selection_metric
+            selection_metric=selection_metric,
+            n_jobs=1
         )
         pipeline.run_pipeline()
 

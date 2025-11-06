@@ -1,0 +1,100 @@
+{
+    "one-day-ahead": {
+        "max_features": [
+            "U6RATE",
+            "MEDCPIM157SFRBCLE_moving_avg_60",
+            "DGS5",
+            "DGS7",
+            "DGS10",
+            "DGS30",
+            "DGS3",
+            "DGS3MO",
+            "DGS1",
+            "REAINTRATREARAT1YE_moving_avg_60",
+            "DGS6MO",
+            "REAINTRATREARAT1YE_exp_moving_avg_60",
+            "MEDCPIM157SFRBCLE_exp_moving_avg_60",
+            "U6RATE_exp_moving_avg_60",
+            "DGS20",
+            "DGS1MO",
+            "DGS2"
+        ]
+    },
+    "seven-day-ahead": {
+        "max_features": [
+            "U6RATE",
+            "MEDCPIM157SFRBCLE_moving_avg_60",
+            "STICKCPIM158SFRBATL_moving_avg_60",
+            "DGS5",
+            "DGS7",
+            "DGS10",
+            "DGS3",
+            "DGS3MO",
+            "DGS1",
+            "DGS30",
+            "REAINTRATREARAT1YE_moving_avg_60",
+            "DGS6MO",
+            "REAINTRATREARAT1YE_exp_moving_avg_60",
+            "MEDCPIM157SFRBCLE_exp_moving_avg_60",
+            "U6RATE_exp_moving_avg_60",
+            "DGS20",
+            "DGS1MO",
+            "DGS2"
+        ]
+    },
+    "thirty-day-ahead": {
+        "max_features": [
+            "U6RATE",
+            "MEDCPIM157SFRBCLE_moving_avg_60",
+            "STICKCPIM158SFRBATL_moving_avg_60",
+            "DGS5",
+            "DGS7",
+            "DGS10",
+            "DGS3",
+            "DGS3MO",
+            "DGS1",
+            "DGS30",
+            "REAINTRATREARAT1YE_moving_avg_60",
+            "DGS2",
+            "DGS6MO",
+            "REAINTRATREARAT1YE_exp_moving_avg_60",
+            "MEDCPIM157SFRBCLE_exp_moving_avg_60",
+            "U6RATE_exp_moving_avg_60",
+            "DGS20",
+            "REAINTRATREARAT1YE_exp_moving_avg_30"
+        ]
+    },
+    "sixty-day-ahead": {
+        "max_features": [
+            "U6RATE",
+            "MEDCPIM157SFRBCLE_moving_avg_60",
+            "STICKCPIM158SFRBATL_moving_avg_60",
+            "DGS5",
+            "DGS7",
+            "DGS10",
+            "DGS3",
+            "DGS1",
+            "REAINTRATREARAT1YE_moving_avg_60",
+            "DGS2",
+            "DGS6MO",
+            "REAINTRATREARAT1YE_exp_moving_avg_60",
+            "MEDCPIM157SFRBCLE_exp_moving_avg_60",
+            "U6RATE_exp_moving_avg_60",
+            "DGS20",
+            "REAINTRATREARAT1YE_exp_moving_avg_30"
+        ]
+    },
+    "dependent_variables": [
+        "DGS1MO_future_val",
+        "DGS3MO_future_val",
+        "DGS6MO_future_val",
+        "DGS1_future_val",
+        "DGS2_future_val",
+        "DGS3_future_val",
+        "DGS5_future_val",
+        "DGS7_future_val",
+        "DGS10_future_val",
+        "DGS20_future_val",
+        "DGS30_future_val"
+    ]
+}

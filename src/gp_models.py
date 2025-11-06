@@ -63,15 +63,15 @@ class GaussianProcessEnsemble:
         kernels = {
             # 'DotProduct': DotProduct() + WhiteKernel(noise_level=1e-5),
             
-            'ExpSineSquared': (ConstantKernel(1.0, (1e-3, 1e3)) * 
-                              ExpSineSquared(length_scale=1.0, periodicity=1.0, 
-                                           length_scale_bounds=(1e-2, 1e2),
-                                           periodicity_bounds=(1e-2, 1e2)) +
-                              WhiteKernel(noise_level=1e-5)),
+            # 'ExpSineSquared': (ConstantKernel(1.0, (1e-3, 1e3)) *
+            #                   ExpSineSquared(length_scale=1.0, periodicity=1.0,
+            #                                length_scale_bounds=(1e-2, 1e2),
+            #                                periodicity_bounds=(1e-2, 1e2)) +
+            #                   WhiteKernel(noise_level=1e-5)),
 
-            'RBF': (ConstantKernel(1.0, (1e-3, 1e3)) *
-                   RBF(length_scale=1.0, length_scale_bounds=(1e-2, 1e2)) +
-                   WhiteKernel(noise_level=1e-5)),
+            # 'RBF': (ConstantKernel(1.0, (1e-3, 1e3)) *
+            #        RBF(length_scale=1.0, length_scale_bounds=(1e-2, 1e2)) +
+            #        WhiteKernel(noise_level=1e-5)),
 
             # 'WhiteKernel': WhiteKernel(noise_level=1.0, noise_level_bounds=(1e-10, 1e+1)),
 
@@ -85,12 +85,12 @@ class GaussianProcessEnsemble:
                                                  alpha_bounds=(1e-5, 1e5)) +
                                  WhiteKernel(noise_level=1e-5)),
 
-            'QuasiPeriodic': (ConstantKernel(1.0, (1e-3, 1e3)) *
-                             RBF(length_scale=1.0, length_scale_bounds=(1e-2, 1e2)) *
-                             ExpSineSquared(length_scale=1.0, periodicity=1.0,
-                                          length_scale_bounds=(1e-2, 1e2),
-                                          periodicity_bounds=(1e-2, 1e2)) +
-                             WhiteKernel(noise_level=1e-5))
+            # 'QuasiPeriodic': (ConstantKernel(1.0, (1e-3, 1e3)) *
+            #                  RBF(length_scale=1.0, length_scale_bounds=(1e-2, 1e2)) *
+            #                  ExpSineSquared(length_scale=1.0, periodicity=1.0,
+            #                               length_scale_bounds=(1e-2, 1e2),
+            #                               periodicity_bounds=(1e-2, 1e2)) +
+            #                  WhiteKernel(noise_level=1e-5))
         }
         
         logger.info(f"Created {len(kernels)} kernel configurations")
@@ -164,12 +164,13 @@ class GaussianProcessEnsemble:
         x_copy = x.copy()
         y_copy = y.copy()
         model = self.create_gp_model(kernel_name=kernel_name)
-        model = MultiOutputRegressor(model)
+        model = MultiOutputRegressor(model, n_jobs=3)
 
         # Fit model to get additional metrics
         model.fit(x_copy, y_copy)
         y_pred = model.predict(x_copy)
-        # get the euclidain distance between y and y_pred
+        # get the residuals
+        residuals = y_copy.to_numpy() - y_pred
 
         estimators = model.estimators_
         metrics = {
@@ -179,6 +180,7 @@ class GaussianProcessEnsemble:
             'train_r2_avg': self.rsquared_score_avg(y.to_numpy(), y_pred),
             'train_r2_flat': self.rsquared_flat(y.to_numpy(), y_pred),
             'log_marginal_likelihood': [estimator.log_marginal_likelihood() for estimator in estimators],
+            'residuals': residuals,
             'model': model,
         }
         return metrics
@@ -192,11 +194,14 @@ class GaussianProcessEnsemble:
         target_std = np.std(y.to_numpy(), axis=0)
         tasks = [(x, y, kernel_name) for kernel_name in self.kernels.keys()]
         results = []
-        with ProcessPoolExecutor(max_workers=self.n_jobs) as executor:
-            futures = [executor.submit(self.ensemble_train_runner,task) for task in tasks]
-            for future in tqdm(as_completed(futures), desc='Kernels trained:', total=len(futures)):
-                res = future.result()
-                results.append(res)
+
+        # with ProcessPoolExecutor(max_workers=self.n_jobs) as executor:
+        #     futures = [executor.submit(self.ensemble_train_runner,task) for task in tasks]
+        #     for future in tqdm(as_completed(futures), desc='Kernels trained:', total=len(futures)):
+        #         res = future.result()
+        #         results.append(res)
+        task = self.ensemble_train_runner(tasks[0])
+        results.append(task)
         # return the best model
         results.sort(key=lambda x: x['train_cosine_distance'], reverse=True)
         self.kernel_scores = {x['kernel_name']: {
@@ -206,6 +211,7 @@ class GaussianProcessEnsemble:
             'train_r2_flat': x['train_r2_flat'],
             'log_marginal_likelihood': x['log_marginal_likelihood'],
             'target_std': target_std,
+            'residuals': x['residuals'],
             'model': x['model']
         } for x in results}
         # select the best model
@@ -262,17 +268,16 @@ class GaussianProcessEnsemble:
             x: Feature matrix for prediction
             n_samples: Number of samples to draw
         """
-        self._select_best_kernel()
-        y_pred = self.best_model.predict(x)[0]
-        # get the covariance matrix of the y values
-        covar = y.cov()
-        # noise_scale = self.kernel_scores[self.best_kernel_name]['target_std']
-        # kernel_val = self.best_model.kernel_
-        y_samples = np.random.multivariate_normal(mean=y_pred, cov=covar, size=n_samples)
-        y_samples = y_samples.T[ np.newaxis, :, :]
-
-        # y_samples = self.best_model.sample_y(x, n_samples=n_samples, random_state=self.random_state)
-        return y_samples
+        if self.best_model is None:
+            raise ValueError("Must fit best model first")
+        residuals = self.kernel_scores[self.best_kernel_name]['residuals']
+        # get the mean prediction
+        y_mean = self.best_model.predict(x)
+        y_samples = np.array([
+            np.random.choice(residuals[:, col], size=n_samples, replace=True) for col in range(residuals.shape[1])
+                        ]).T
+        y_samples = y_mean + y_samples
+        return y_samples.T[np.newaxis, :, :]
     
     def get_model_summary(self) -> Dict[str, Any]:
         """
