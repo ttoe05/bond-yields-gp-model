@@ -89,7 +89,7 @@ class BayesianRidgeEnsemble:
             copy_X=True
         )
         
-        model = MultiOutputRegressor(bayesian_ridge, n_jobs=1)
+        model = MultiOutputRegressor(bayesian_ridge, n_jobs=3)
         
         return model
 
@@ -135,6 +135,7 @@ class BayesianRidgeEnsemble:
             y_pred = model.predict(x)
             # get the residuals of the training data
             residuals = np.abs(y.to_numpy() - y_pred)
+            residual_vals = y.to_numpy() - y_pred
             # get the standard deviation of the residuals
             residual_mean = np.mean(residuals, axis=0)
             
@@ -145,13 +146,14 @@ class BayesianRidgeEnsemble:
                 'train_r2_avg': self.rsquared_score_avg(y.to_numpy(), y_pred),
                 'train_r2_flat': self.rsquared_flat(y.to_numpy(), y_pred),
                 'residual_mean': residual_mean,
+                'residuals': residual_vals,
                 'target_std': target_std,
                 'model': model
             }
             
             self.model_scores[alpha_name] = metrics
-            logger.info(f"Trained {alpha_name}: R²={metrics['train_r2_avg']:.4f}, "
-                       f"RMSE={metrics['train_euclidean_rmse']:.4f}")
+            # logger.info(f"Trained {alpha_name}: R²={metrics['train_r2_avg']:.4f}, "
+            #            f"RMSE={metrics['train_euclidean_rmse']:.4f}")
         
         # Select best model
         self._select_best_model()
@@ -202,6 +204,9 @@ class BayesianRidgeEnsemble:
         else:
             return y_pred, None
 
+
+
+
     def predict_val_distribution(self, x: pd.DataFrame, y: pd.Series, n_samples: int = 1000) -> np.ndarray:
         """
         Generate samples from the predictive distribution.
@@ -216,13 +221,24 @@ class BayesianRidgeEnsemble:
         if self.best_model is None:
             raise ValueError("Must train models first")
         
-        y_pred = self.best_model.predict(x)[0]
+        # get the residuals
+        residuals = self.model_scores[self.best_alpha_name]['residuals']
+
+        # bootstrap each column of the array to create samples
+
+        # residual_samples = np.random.choice(residuals, size=(n_samples, residuals.shape[1]))
+        y_pred = self.best_model.predict(x)
+        y_samples = np.array([
+            np.random.choice(residuals[:, col], size=n_samples, replace=True) for col in range(residuals.shape[1])
+                        ]).T
+        # get the residuals  from the training data
         
         # For Bayesian Ridge, generate samples by adding noise to predictions
         # This is a simplified approach - in practice you'd use the posterior distribution
         # get the residual std deviation for the best model
-        covar = y.cov()
-        y_samples = np.random.multivariate_normal(y_pred, covar, n_samples)
+        # covar = y.cov()
+        # y_samples = np.random.multivariate_normal(y_pred, covar, n_samples)
+        y_samples = y_pred + y_samples
         return y_samples.T[np.newaxis, :, :]
 
 
@@ -260,31 +276,32 @@ class BayesianRidgeEnsemble:
     def get_feature_importance_proxy(self, X: pd.DataFrame) -> pd.Series:
         """
         Get feature importance using Bayesian Ridge coefficients.
-        
+
         Args:
             X: Feature matrix used for training
-            
+
         Returns:
             Series with feature importance scores
         """
         if self.best_model is None:
             raise ValueError("Must fit model first")
-        
+
         # Get coefficients from all outputs and average them
         coefficients = []
         for estimator in self.best_model.estimators_:
             if hasattr(estimator, 'coef_'):
                 coefficients.append(np.abs(estimator.coef_))
-        
+
         if coefficients:
             # Average absolute coefficients across outputs
             avg_coefficients = np.mean(coefficients, axis=0)
             # Normalize to sum to 1
             importance_scores = avg_coefficients / np.sum(avg_coefficients)
-            
+
             return pd.Series(importance_scores, index=X.columns, name='importance')
-        
+
         # Fallback: uniform importance
         logger.warning("Could not extract feature importance, using uniform weights")
         uniform_importance = np.ones(X.shape[1]) / X.shape[1]
         return pd.Series(uniform_importance, index=X.columns, name='importance')
+        # return pd.Series(uniform_importance, index=X.columns, name='importance')

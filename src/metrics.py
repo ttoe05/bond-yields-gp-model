@@ -77,8 +77,8 @@ class ForecastingMetrics:
         record['date'] = pd.to_datetime(date_str)
         for col in self.dependent_varaibles:
             record[f"{col}_mean"] = df_tmp[col].mean()
-            record[f"{col}_97_5"] = df_tmp[df_tmp[f"{col}_percentile"] == 0.975][col].values[0]
-            record[f"{col}_2_5"] = df_tmp[df_tmp[f"{col}_percentile"] == 0.025][col].values[0]
+            record[f"{col}_97_5"] = df_tmp[df_tmp[f"{col}_percentile"] >= 0.95][col].values[0]
+            record[f"{col}_2_5"] = df_tmp[df_tmp[f"{col}_percentile"] <= 0.05][col].values[0]
 
         return record
 
