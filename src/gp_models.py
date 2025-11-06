@@ -85,12 +85,12 @@ class GaussianProcessEnsemble:
                                                  alpha_bounds=(1e-5, 1e5)) +
                                  WhiteKernel(noise_level=1e-5)),
 
-            'QuasiPeriodic': (ConstantKernel(1.0, (1e-3, 1e3)) *
-                             RBF(length_scale=1.0, length_scale_bounds=(1e-2, 1e2)) *
-                             ExpSineSquared(length_scale=1.0, periodicity=1.0,
-                                          length_scale_bounds=(1e-2, 1e2),
-                                          periodicity_bounds=(1e-2, 1e2)) +
-                             WhiteKernel(noise_level=1e-5))
+            # 'QuasiPeriodic': (ConstantKernel(1.0, (1e-3, 1e3)) *
+            #                  RBF(length_scale=1.0, length_scale_bounds=(1e-2, 1e2)) *
+            #                  ExpSineSquared(length_scale=1.0, periodicity=1.0,
+            #                               length_scale_bounds=(1e-2, 1e2),
+            #                               periodicity_bounds=(1e-2, 1e2)) +
+            #                  WhiteKernel(noise_level=1e-5))
         }
         
         logger.info(f"Created {len(kernels)} kernel configurations")

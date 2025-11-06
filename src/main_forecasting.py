@@ -114,13 +114,14 @@ if __name__ == "__main__":
     selection_metric = 'train_r2_avg'
     file_num = [1, 7, 30, 60]
     time_prediction_list = [
-        'one-day-ahead', 'seven-day-ahead', 'thirty-day-ahead', 'sixty-day-ahead'
+        # 'one-day-ahead',
+        'seven-day-ahead', 'thirty-day-ahead', 'sixty-day-ahead'
     ]
     for day, time_prediction in zip(file_num, time_prediction_list):
         data_file = f"data/bond_yields_train_shifted_{day}.parquet"
         print(f"Running pipeline for {time_prediction} using data file {data_file}")
         pipeline = YieldForecastingPipeline(
-            model_name='BayesianRidge',
+            model_name='GP',
             time_prediction=time_prediction,
             config_file=config_file,
             data_file=data_file,
