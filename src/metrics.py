@@ -24,12 +24,13 @@ logger = logging.getLogger(__name__)
 class ForecastingMetrics:
     """Comprehensive forecasting metrics calculator."""
     
-    def __init__(self, time_prediction: str, actuals_file: str) -> None:
+    def __init__(self, time_prediction: str, actuals_file: str, monte_carlo: bool = False) -> None:
         """Initialize metrics calculator."""
         self.time_prediction = time_prediction
         self.actuals_df: pd.DataFrame = None
         self.forecasts_df: pd.DataFrame = None
         self.actuals_file = actuals_file
+        self.monte_carlo = monte_carlo
         self.dependent_varaibles = [
             'DGS1MO_future_val', 'DGS3MO_future_val', 'DGS6MO_future_val',
             'DGS1_future_val', 'DGS2_future_val', 'DGS3_future_val', 'DGS5_future_val',
@@ -88,7 +89,7 @@ class ForecastingMetrics:
         Returns: None
         """
         # get the list of sample files
-        sample_files = get_list_sample_files(time_prediction=self.time_prediction, percentile=True)
+        sample_files = get_list_sample_files(time_prediction=self.time_prediction, percentile=True, monte_carlo=self.monte_carlo)
         max_workers = 8
         # user mutlithreading to read in all the forecast files in parallel
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -175,8 +176,9 @@ class ForecastingMetrics:
 
 
 if __name__ == "__main__":
-    forecasts = ForecastingMetrics(time_prediction='thirty-day-ahead',
-                                   actuals_file="data/fred_prorcessed_daily.parquet")
+    forecasts = ForecastingMetrics(time_prediction='one-day-ahead',
+                                   actuals_file="data/fred_prorcessed_daily.parquet",
+                                   monte_carlo=True)
 
     print(forecasts.forecasts_df.head())
     print(forecasts.actuals_df.head())

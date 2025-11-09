@@ -83,7 +83,8 @@ class YieldForecastingPipeline:
         # Get features for the specified time prediction
         features = self.feature_manager.get_features_for_time_pred(time_prediction=self.time_prediction)
         target_columns = self.feature_manager.get_dependent_variables()
-        self.data_loader.load_data(x=features, y=target_columns)
+        actual_columns = self.feature_manager.get_actual_variables()
+        self.data_loader.load_data(x=features, y=target_columns, actual=actual_columns)
         logger.info(f"Using {len(features)} features for time prediction {self.time_prediction}")
 
         # Set up walk-forward validator
