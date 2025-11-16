@@ -36,7 +36,7 @@ class BondDataLoader:
         if not self.data_path.suffix == '.parquet':
             raise ValueError("Data file must be a .parquet file")
     
-    def load_data(self, x: List[str], y: List[str], actuals: List[str]) -> None:
+    def load_data(self, x: List[str], y: List[str], actuals: List[str] = None) -> None:
         """
         Load the bond data from parquet file.
         
@@ -57,7 +57,10 @@ class BondDataLoader:
             #
             # Sort by date
             df_tmp.sort_index(inplace=True)
-            full_columns = x + y + actuals
+            if actuals is None or y == actuals:
+                full_columns = list(set(x + y))  # Remove duplicates
+            else:
+                full_columns = list(set(x + y + actuals))  # Remove duplicates
             # handle nulls
             df_tmp = df_tmp[full_columns].dropna()
             logger.info(f"Loaded data: {df_tmp.shape[0]} rows, {df_tmp.shape[1]} columns")
@@ -70,13 +73,14 @@ class BondDataLoader:
             raise ValueError
 
     
-    def get_time_windows(self, window_size: int = 252, min_window_size: int = 100) -> List[Tuple[int, int]]:
+    def get_time_windows(self, window_size: int = 252, min_window_size: int = 100, window_type: str = 'sliding') -> List[Tuple[int, int]]:
         """
         Generate time windows for walk-forward validation.
         
         Args:
-            window_size: Size of the training window
+            window_size: Size of the training window (for sliding window)
             min_window_size: Minimum window size required
+            window_type: Type of window ('sliding' or 'growing')
             
         Returns:
             List of (start_idx, end_idx) tuples for training windows
@@ -87,13 +91,48 @@ class BondDataLoader:
         n_samples = len(self.data)
         windows = []
         
-        # Start from minimum window size and expand until we reach full window size
-        for i in range(max(window_size, min_window_size), n_samples):
-            start_idx = max(0, i - window_size)
-            end_idx = i
+        if window_type == 'sliding':
+            # Original sliding window implementation
+            # Start from minimum window size and expand until we reach full window size
+            for i in range(max(window_size, min_window_size), n_samples):
+                start_idx = max(0, i - window_size)
+                end_idx = i
+                windows.append((start_idx, end_idx))
+                
+        elif window_type == 'growing':
+            # Growing window implementation - always start from beginning
+            for end_idx in range(min_window_size, n_samples):
+                start_idx = 0  # Always start from beginning for growing window
+                windows.append((start_idx, end_idx))
+        else:
+            raise ValueError(f"Invalid window_type: {window_type}. Must be 'sliding' or 'growing'")
+        
+        logger.info(f"Generated {len(windows)} {window_type} time windows")
+        return windows
+
+    def get_growing_windows(self, min_window_size: int = 100, step_size: int = 1) -> List[Tuple[int, int]]:
+        """
+        Generate growing windows for walk-forward validation.
+        
+        Args:
+            min_window_size: Minimum initial window size
+            step_size: Step size for expanding windows
+            
+        Returns:
+            List of (start_idx, end_idx) tuples with growing training windows
+        """
+        if self.data is None:
+            raise ValueError("Data must be loaded first")
+        
+        windows = []
+        n_samples = len(self.data)
+        
+        # Start with minimum window, grow incrementally
+        for end_idx in range(min_window_size, n_samples, step_size):
+            start_idx = 0  # Always start from beginning for growing window
             windows.append((start_idx, end_idx))
         
-        logger.info(f"Generated {len(windows)} time windows")
+        logger.info(f"Generated {len(windows)} growing time windows")
         return windows
     
     def get_window_data(self, start_idx: int, end_idx: int, 
