@@ -5,12 +5,11 @@ Implements different alpha hyperparameters and model selection strategies.
 
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, Tuple, Optional, Any
 from sklearn.linear_model import BayesianRidge
 from sklearn.multioutput import MultiOutputRegressor
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from data_loader import BondDataLoader
-from feature_manager import FeatureManager
+from sklearn.metrics import r2_score
+from base_ensemble_model import BaseEnsembleModel
 
 import logging
 import warnings
@@ -20,28 +19,31 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class BayesianRidgeEnsemble:
+class BayesianRidgeEnsemble(BaseEnsembleModel):
     """Ensemble of Bayesian Ridge models with different alpha hyperparameters."""
     
-    def __init__(self, selection_metric: str = 'train_cosine_distance', random_state: int = 42):
+    def __init__(self, selection_metric: str = 'train_cosine_distance', random_state: int = 42, n_jobs: int = 3):
         """
         Initialize the Bayesian Ridge ensemble.
         
         Args:
             selection_metric: Metric to use for model selection
             random_state: Random state for reproducibility
+            n_jobs: Number of parallel jobs
         """
+        super().__init__(random_state=random_state, n_jobs=n_jobs)
+        
         metrics = ['train_cosine_distance', 'train_euclidean_rmse', 'train_r2_avg', 'train_r2_flat']
         if selection_metric not in metrics:
             raise ValueError(f"Unknown metric: {selection_metric}. Available metrics: {metrics}")
         
         self.selection_metric = selection_metric
-        self.random_state = random_state
         self.alpha_configs = None
         self.fitted_models: Dict[str, MultiOutputRegressor] = {}
         self.model_scores: Dict[str, Dict[str, float]] = {}
         self.best_alpha_name: Optional[str] = None
         self.best_model: Optional[MultiOutputRegressor] = None
+        self.residuals: Optional[np.ndarray] = None
         self._create_alpha_configurations()
 
     def _create_alpha_configurations(self) -> Dict[str, float]:
@@ -89,7 +91,7 @@ class BayesianRidgeEnsemble:
             copy_X=True
         )
         
-        model = MultiOutputRegressor(bayesian_ridge, n_jobs=3)
+        model = MultiOutputRegressor(bayesian_ridge, n_jobs=self.n_jobs)
         
         return model
 
@@ -114,25 +116,33 @@ class BayesianRidgeEnsemble:
         """Compute the R-squared score between two flattened vectors."""
         return r2_score(a.flatten(), b.flatten())
 
-    def train_historical(self, x: pd.DataFrame, y: pd.Series):
+    def train_historical(self, x: pd.DataFrame, y: pd.DataFrame) -> Dict[str, Any]:
         """
         Train all Bayesian Ridge models with different alpha values.
         
         Args:
-            x: Feature matrix
-            y: Target matrix
+            x: Feature DataFrame
+            y: Target DataFrame
+            
+        Returns:
+            Dictionary with training metrics
         """
+        # Validate inputs using base class method
+        self._validate_inputs(x, y)
+        
+        # Store training boundaries for prediction enforcement
+        self._store_training_boundaries(y)
+        
         logger.info(f"Training {len(self.alpha_configs)} Bayesian Ridge models")
         
         for alpha_name in self.alpha_configs.keys():
             model = self.create_bayesian_ridge_model(alpha_name=alpha_name)
             # get the standard deviation of the target variable
             target_std = np.std(y.to_numpy(), axis=0)
-            # self.model_scores[alpha_name] = {'target_std': target_std}
             
             # Fit model
-            model.fit(x, y)
-            y_pred = model.predict(x)
+            model.fit(x.values, y.values)
+            y_pred = model.predict(x.values)
             # get the residuals of the training data
             residuals = np.abs(y.to_numpy() - y_pred)
             residual_vals = y.to_numpy() - y_pred
@@ -152,12 +162,25 @@ class BayesianRidgeEnsemble:
             }
             
             self.model_scores[alpha_name] = metrics
-            # logger.info(f"Trained {alpha_name}: R²={metrics['train_r2_avg']:.4f}, "
-            #            f"RMSE={metrics['train_euclidean_rmse']:.4f}")
         
         # Select best model
         self._select_best_model()
+        
+        # Store residuals for sampling
+        self.residuals = self.model_scores[self.best_alpha_name]['residuals']
+        
+        self.is_trained = True
         logger.info(f"Best alpha: {self.best_alpha_name}")
+        
+        # Return training summary
+        return {
+            'best_alpha': self.best_alpha_name,
+            'alpha_scores': self.model_scores[self.best_alpha_name],
+            'n_alphas_tested': len(self.alpha_configs),
+            'training_samples': len(x),
+            'n_features': x.shape[1],
+            'target_columns': list(y.columns)
+        }
 
 
     def _select_best_model(self) -> None:
@@ -179,67 +202,74 @@ class BayesianRidgeEnsemble:
 
         self.best_model = self.model_scores[self.best_alpha_name]['model']
 
-    def predict_val(self, x: pd.DataFrame, return_std: bool = True) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    def predict_val(self, x: pd.DataFrame) -> np.ndarray:
         """
         Make predictions with uncertainty quantification.
         
         Args:
             x: Feature matrix for prediction
-            return_std: Whether to return standard deviations
             
         Returns:
-            Tuple of (predictions, standard_deviations)
+            Array of predictions
         """
-        if self.best_model is None:
-            raise ValueError("Must train models first")
+        self._validate_trained()
+        self._validate_inputs(x)
         
-        y_pred = self.best_model.predict(x)
+        predictions = self.best_model.predict(x.values)
         
-        if return_std:
-            # For Bayesian Ridge, we can estimate uncertainty using coefficient variance
-            # This is a simplified approach - using prediction variance as proxy
-            std_estimates = np.std(y_pred, axis=0, keepdims=True)
-            std_estimates = np.repeat(std_estimates, y_pred.shape[0], axis=0)
-            return y_pred, std_estimates
-        else:
-            return y_pred, None
+        # Apply prediction boundaries if available
+        if self.training_columns is not None and len(predictions.shape) == 2:
+            predictions = self._apply_prediction_boundaries(predictions, self.training_columns)
+        
+        return predictions
 
 
 
 
-    def predict_val_distribution(self, x: pd.DataFrame, y: pd.Series, n_samples: int = 1000) -> np.ndarray:
+    def predict_val_distribution(self, x: pd.DataFrame, y: pd.DataFrame, n_samples: int = 1000) -> pd.DataFrame:
         """
-        Generate samples from the predictive distribution.
+        Generate samples from the predictive distribution using residual-based sampling.
+        Adopts the same methodology as KernelRidgeEnsemble for consistency.
 
         Args:
             x: Feature matrix for prediction
+            y: Target DataFrame (for column names)
             n_samples: Number of samples to draw
             
         Returns:
-            Array of shape (n_samples, n_outputs) for single prediction
+            DataFrame with prediction samples
         """
-        if self.best_model is None:
-            raise ValueError("Must train models first")
+        self._validate_trained()
+        self._validate_inputs(x)  # Only validate x, y is just for column reference
         
-        # get the residuals
-        residuals = self.model_scores[self.best_alpha_name]['residuals']
-
-        # bootstrap each column of the array to create samples
-
-        # residual_samples = np.random.choice(residuals, size=(n_samples, residuals.shape[1]))
-        y_pred = self.best_model.predict(x)
-        y_samples = np.array([
-            np.random.choice(residuals[:, col], size=n_samples, replace=True) for col in range(residuals.shape[1])
-                        ]).T
-        # get the residuals  from the training data
+        if self.residuals is None:
+            raise ValueError("Residuals not available. Ensure train_historical() was called.")
         
-        # For Bayesian Ridge, generate samples by adding noise to predictions
-        # This is a simplified approach - in practice you'd use the posterior distribution
-        # get the residual std deviation for the best model
-        # covar = y.cov()
-        # y_samples = np.random.multivariate_normal(y_pred, covar, n_samples)
-        y_samples = y_pred + y_samples
-        return y_samples.T[np.newaxis, :, :]
+        # Get point prediction
+        point_pred = self.predict_val(x)
+        mean_prediction_df = pd.DataFrame(data=point_pred, columns=y.columns)
+        residuals_df = pd.DataFrame(data=self.residuals, columns=y.columns)
+        
+        # Sample using residual-based methodology (same as KRR)
+        samples_dict = {}
+        for pred_col in mean_prediction_df.columns:
+            mean_val = mean_prediction_df[pred_col].values[0]
+            # Use absolute mean of residuals as standard deviation
+            std_val = residuals_df[pred_col].abs().mean()
+            samples_dict[pred_col] = np.random.normal(
+                loc=mean_val,
+                scale=std_val,
+                size=n_samples
+            )
+        
+        samples_df = pd.DataFrame(samples_dict)
+        
+        # Apply boundaries if available
+        if self.training_columns is not None:
+            bounded_samples = self._apply_prediction_boundaries(samples_df.values, list(samples_df.columns))
+            samples_df = pd.DataFrame(bounded_samples, columns=samples_df.columns)
+        
+        return samples_df
 
 
     def get_model_summary(self) -> Dict[str, Any]:

@@ -71,14 +71,31 @@ class FeatureManager:
         
         return features
 
-    def get_dependent_variables(self):
+    def get_dependent_variables(self, time_prediction: str = None):
         """
-        Get the list of dependent variables for each bond index.
+        Get the list of dependent variables for a time prediction.
+
+        Args:
+            time_prediction: Time prediction to get dependent variables for. 
+                           If None, tries to return root level dependent_variables.
 
         Returns:
-            Dict mapping bond index names to their dependent variable column names
+            List of dependent variable column names
         """
-        return self.features_config['dependent_variables']
+        if time_prediction is not None:
+            # First try time-specific dependent variables
+            if (time_prediction in self.features_config and 
+                isinstance(self.features_config[time_prediction], dict) and
+                'dependent_variables' in self.features_config[time_prediction]):
+                return self.features_config[time_prediction]['dependent_variables']
+            # Fall back to root level dependent_variables
+            elif 'dependent_variables' in self.features_config:
+                return self.features_config['dependent_variables']
+            else:
+                raise KeyError(f"No dependent_variables found for '{time_prediction}' or at root level")
+        else:
+            # Fallback to root level if exists
+            return self.features_config.get('dependent_variables', [])
 
     
     def get_all_available_times(self) -> List[str]:

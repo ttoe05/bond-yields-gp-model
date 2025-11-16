@@ -5,21 +5,17 @@ Implements different kernel types and model selection strategies.
 
 import numpy as np
 import pandas as pd
-import yaml
-from tqdm import tqdm
-from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, Optional, Any
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.gaussian_process.kernels import (
-    DotProduct, ExpSineSquared, RBF, WhiteKernel, 
-    ConstantKernel, Matern, RationalQuadratic
+    WhiteKernel,
+    ConstantKernel, RationalQuadratic
 )
-from sklearn.model_selection import cross_val_score, TimeSeriesSplit
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from sklearn.metrics import r2_score
 from data_loader import BondDataLoader
 from feature_manager import FeatureManager
+from base_ensemble_model import BaseEnsembleModel
 
 import logging
 import warnings
@@ -29,7 +25,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class GaussianProcessEnsemble:
+class GaussianProcessEnsemble(BaseEnsembleModel):
     """Ensemble of Gaussian Process models with different kernels."""
     
     def __init__(self, selection_metric: str = 'train_cosine_distance', random_state: int = 42, n_jobs: int = 3):
@@ -37,18 +33,20 @@ class GaussianProcessEnsemble:
         Initialize the GP ensemble.
         
         Args:
+            selection_metric: Metric for kernel selection
             random_state: Random state for reproducibility
+            n_jobs: Number of parallel jobs
         """
+        super().__init__(random_state=random_state, n_jobs=n_jobs)
+        
         metrics = ['train_cosine_distance', 'train_euclidean_rmse', 'train_r2_avg', 'train_r2_flat']
         if selection_metric not in metrics:
             raise ValueError(f"Unknown metric: {selection_metric}. Available metrics: {metrics}")
         self.selection_metric = selection_metric
-        self.random_state = random_state
         self.kernels = None
         self.fitted_models: Dict[str, MultiOutputRegressor] = {}
         self.kernel_scores: Dict[str, Dict[str, float]] = {}
         self.best_kernel_name: Optional[str] = None
-        self.n_jobs = n_jobs
         self.best_model: Optional[MultiOutputRegressor] = None
         self._create_kernel_configurations()
 
@@ -186,11 +184,23 @@ class GaussianProcessEnsemble:
         return metrics
 
 
-    def train_historical(self, x: pd.DataFrame, y: pd.Series):
+    def train_historical(self, x: pd.DataFrame, y: pd.DataFrame) -> Dict[str, Any]:
         """
         Train all the Gaussian Process models using the different kernels concurrently.
+        
+        Args:
+            x: Feature DataFrame
+            y: Target DataFrame
+            
         Returns:
+            Dictionary with training metrics
         """
+        # Validate inputs using base class method
+        self._validate_inputs(x, y)
+        
+        # Store training boundaries for prediction enforcement
+        self._store_training_boundaries(y)
+        
         target_std = np.std(y.to_numpy(), axis=0)
         tasks = [(x, y, kernel_name) for kernel_name in self.kernels.keys()]
         results = []
@@ -216,7 +226,18 @@ class GaussianProcessEnsemble:
         } for x in results}
         # select the best model
         self._select_best_kernel()
+        self.is_trained = True
         logger.info(f"Best kernel: {self.best_kernel_name}")
+        
+        # Return training summary
+        return {
+            'best_kernel': self.best_kernel_name,
+            'kernel_scores': self.kernel_scores[self.best_kernel_name],
+            'n_kernels_tested': len(self.kernels),
+            'training_samples': len(x),
+            'n_features': x.shape[1],
+            'target_columns': list(y.columns)
+        }
 
     
     def _select_best_kernel(self) -> None:
@@ -247,37 +268,56 @@ class GaussianProcessEnsemble:
         
         Args:
             x: Feature matrix for prediction
-            return_std: Whether to return standard deviations
             
         Returns:
-            Tuple of (predictions, standard_deviations)
+            Array of predictions
         """
-        # self._select_best_kernel()
+        self._validate_trained()
+        self._validate_inputs(x)
         
+        predictions = self.best_model.predict(x.values)
+        
+        # Apply prediction boundaries if available
+        if self.training_columns is not None and len(predictions.shape) == 2:
+            predictions = self._apply_prediction_boundaries(predictions, self.training_columns)
+        
+        return predictions
 
-        return self.best_model.predict(x)
 
 
 
-
-    def predict_val_distribution(self, x: pd.DataFrame, y: pd.Series, n_samples: int = 1000) -> np.ndarray:
+    def predict_val_distribution(self, x: pd.DataFrame, y: pd.DataFrame, n_samples: int = 1000) -> pd.DataFrame:
         """
         Generate samples from the predictive distribution.
 
         Args:
             x: Feature matrix for prediction
+            y: Target DataFrame (for column names)
             n_samples: Number of samples to draw
+            
+        Returns:
+            DataFrame with prediction samples
         """
-        if self.best_model is None:
-            raise ValueError("Must fit best model first")
+        self._validate_trained()
+        self._validate_inputs(x)  # Only validate x, y is just for column reference
+        
         residuals = self.kernel_scores[self.best_kernel_name]['residuals']
         # get the mean prediction
-        y_mean = self.best_model.predict(x)
+        y_mean = self.best_model.predict(x.values)
         y_samples = np.array([
             np.random.choice(residuals[:, col], size=n_samples, replace=True) for col in range(residuals.shape[1])
                         ]).T
         y_samples = y_mean + y_samples
-        return y_samples.T[np.newaxis, :, :]
+        
+        # Convert to DataFrame with proper column names
+        samples_df = pd.DataFrame(y_samples, columns=y.columns)
+        
+        # Apply prediction boundaries if available
+        if self.training_columns is not None:
+            bounded_samples = self._apply_prediction_boundaries(samples_df.values, list(samples_df.columns))
+            samples_df = pd.DataFrame(bounded_samples, columns=samples_df.columns)
+        
+        return samples_df
     
     def get_model_summary(self) -> Dict[str, Any]:
         """

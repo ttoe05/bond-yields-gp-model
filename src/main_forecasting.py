@@ -9,16 +9,9 @@ This script orchestrates the entire forecasting pipeline including:
 - Performance evaluation and visualization
 """
 
-import argparse
-import json
 import logging
-import os
 import sys
 import time
-from typing import Dict, List
-
-import numpy as np
-import pandas as pd
 
 # Add the src directory to path to import our modules
 
@@ -27,6 +20,7 @@ from data_loader import BondDataLoader
 from feature_manager import FeatureManager
 from gp_models import GaussianProcessEnsemble
 from bayesian_ridge_models import BayesianRidgeEnsemble
+from kernel_ridge_models import KernelRidgeEnsemble
 from walk_forward import WalkForwardValidator
 
 
@@ -62,10 +56,15 @@ class YieldForecastingPipeline:
         self.feature_manager = FeatureManager(features_config_path=config_file)
         self.data_loader = BondDataLoader(data_path=data_file)
         # check if model_name is valid
-        if model_name not in ['GP', 'BayesianRidge']:
-            raise ValueError("model_name must be either 'GP' or 'BayesianRidge'")
+        if model_name not in ['GP', 'BayesianRidge', 'KernelRidge']:
+            raise ValueError("model_name must be one of 'GP', 'BayesianRidge', or 'KernelRidge'")
 
-        self.model_obj = GaussianProcessEnsemble(selection_metric=selection_metric, n_jobs=n_jobs) if model_name == 'GP' else BayesianRidgeEnsemble(selection_metric=selection_metric)
+        if model_name == 'GP':
+            self.model_obj = GaussianProcessEnsemble(selection_metric=selection_metric, n_jobs=n_jobs)
+        elif model_name == 'BayesianRidge':
+            self.model_obj = BayesianRidgeEnsemble(selection_metric=selection_metric, n_jobs=n_jobs)
+        else:  # KernelRidge
+            self.model_obj = KernelRidgeEnsemble(training_metric='mse', random_state=42, n_jobs=n_jobs)
         logger.info(
             f"Initialized forecasting pipeline for time prediction {self.time_prediction} "
             f"with train window {self.train_window}, min train window {self.min_train_window}, "
@@ -82,8 +81,12 @@ class YieldForecastingPipeline:
 
         # Get features for the specified time prediction
         features = self.feature_manager.get_features_for_time_pred(time_prediction=self.time_prediction)
-        target_columns = self.feature_manager.get_dependent_variables()
-        self.data_loader.load_data(x=features, y=target_columns)
+        target_columns = self.feature_manager.get_dependent_variables(time_prediction=self.time_prediction)
+        actual_columns = self.feature_manager.get_actual_variables() if hasattr(self.feature_manager, 'get_actual_variables') else None
+        if actual_columns:
+            self.data_loader.load_data(x=features, y=target_columns, actual=actual_columns)
+        else:
+            self.data_loader.load_data(x=features, y=target_columns)
         logger.info(f"Using {len(features)} features for time prediction {self.time_prediction}")
 
         # Set up walk-forward validator

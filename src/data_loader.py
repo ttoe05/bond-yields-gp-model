@@ -36,7 +36,7 @@ class BondDataLoader:
         if not self.data_path.suffix == '.parquet':
             raise ValueError("Data file must be a .parquet file")
     
-    def load_data(self, x: list[str], y: list[str]) -> None:
+    def load_data(self, x: List[str], y: List[str], actuals: List[str]) -> None:
         """
         Load the bond data from parquet file.
         
@@ -57,7 +57,7 @@ class BondDataLoader:
             #
             # Sort by date
             df_tmp.sort_index(inplace=True)
-            full_columns = x + y
+            full_columns = x + y + actuals
             # handle nulls
             df_tmp = df_tmp[full_columns].dropna()
             logger.info(f"Loaded data: {df_tmp.shape[0]} rows, {df_tmp.shape[1]} columns")
@@ -179,6 +179,28 @@ class BondDataLoader:
             raise ValueError("Data must be loaded first")
         
         return self.data.index[idx]
+    
+    def get_current_yield_value(self, idx: int, base_yield_name: str) -> float:
+        """
+        Get the current yield value for a specific bond at given index.
+        
+        Args:
+            idx: Index position
+            base_yield_name: Base yield column name (e.g., 'DGS1MO')
+            
+        Returns:
+            Current yield value for the base yield
+        """
+        if self.data is None:
+            raise ValueError("Data must be loaded first")
+        
+        if idx >= len(self.data):
+            raise IndexError(f"Index {idx} out of bounds for data with {len(self.data)} rows")
+        
+        if base_yield_name not in self.data.columns:
+            raise ValueError(f"Base yield column '{base_yield_name}' not found in data")
+        
+        return self.data.iloc[idx][base_yield_name]
     
     def summary_statistics(self) -> pd.DataFrame:
         """
