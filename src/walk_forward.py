@@ -10,12 +10,13 @@ import logging
 from datetime import datetime
 import gc
 from data_loader import BondDataLoader
-from feature_manager_sim import FeatureManagerSim
+from feature_manager import FeatureManager
 from gp_models import GaussianProcessEnsemble
 from bayesian_ridge_models import BayesianRidgeEnsemble
 from kernel_ridge_models import KernelRidgeEnsemble
 from sklearn.preprocessing import StandardScaler
 from pathlib import Path
+from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -125,6 +126,14 @@ class WalkForwardValidator:
             feature_columns=features
         )
         
+        # Validate training data before scaling
+        if x_train.empty:
+            raise ValueError(f"X_train is empty for window {train_start_idx}-{train_end_idx}")
+        if y_train.empty:
+            raise ValueError(f"Y_train is empty for window {train_start_idx}-{train_end_idx}")
+        
+        logger.debug(f"Training data shapes: X={x_train.shape}, Y={y_train.shape}")
+        
         # Apply scaling if enabled
         if self.use_scaling:
             if self.model_retrain_counter == self.model_retrain_interval or self.initial_run:
@@ -158,14 +167,14 @@ class WalkForwardValidator:
         # Check if a retrain is needed
         if self.model_retrain_counter == self.model_retrain_interval or self.initial_run:
             retrain = True
-            logger.info(f"Running retrain for window {x_train.index.min()}-{x_train.index.max()}")
+            logger.debug(f"Running retrain for window {x_train.index.min()}-{x_train.index.max()}")
             # train the model with scaled or original data
             self.model.train_historical(x=x_train_scaled, y=y_train_scaled)
             self.feature_importance = self.model.get_feature_importance_proxy(X=x_train_scaled)
             # Reset counter
             self.model_retrain_counter = 0
             if self.initial_run:
-                logger.info("Initial run completed, model retraining interval reached")
+                logger.debug("Initial run completed, model retraining interval reached")
                 self.initial_run = False
         else:
             retrain = False
@@ -193,7 +202,15 @@ class WalkForwardValidator:
         
         # Apply inverse scaling to predictions if scaling is enabled
         if self.use_scaling and self.scalers_fitted:
-            prediction_val = self.scaler_y.inverse_transform(prediction_val_raw.reshape(1, -1)).flatten()
+            # Ensure prediction_val_raw is numpy array and has correct shape
+            if isinstance(prediction_val_raw, pd.DataFrame):
+                prediction_val_raw = prediction_val_raw.values
+            if len(prediction_val_raw.shape) == 1:
+                prediction_val_raw = prediction_val_raw.reshape(1, -1)
+            prediction_val = self.scaler_y.inverse_transform(prediction_val_raw).flatten()
+            
+            # Apply prediction boundaries after inverse transformation
+            prediction_val = self.model._apply_prediction_boundaries(prediction_val.reshape(1, -1), target_columns).flatten()
         else:
             prediction_val = prediction_val_raw
         
@@ -203,13 +220,14 @@ class WalkForwardValidator:
         # Apply inverse scaling to samples if scaling is enabled
         if self.use_scaling and self.scalers_fitted:
             # Reshape samples for inverse transform
-            samples_shape = prediction_samples_raw.shape
-            if len(samples_shape) == 3:  # (1, n_outputs, n_samples)
-                samples_reshaped = prediction_samples_raw.reshape(-1, samples_shape[-1]).T  # (n_samples, n_outputs)
-                prediction_samples_transformed = self.scaler_y.inverse_transform(samples_reshaped)
-                prediction_samples = prediction_samples_transformed.T.reshape(samples_shape)  # Back to original shape
-            else:  # (n_samples, n_outputs)
-                prediction_samples = self.scaler_y.inverse_transform(prediction_samples_raw)
+            # samples_shape = prediction_samples_raw.shape
+            # if len(samples_shape) == 3:  # (1, n_outputs, n_samples)  # (n_samples, n_outputs)
+            prediction_samples_transformed = self.scaler_y.inverse_transform(prediction_samples_raw)
+            prediction_samples = pd.DataFrame(prediction_samples_transformed, columns=prediction_samples_raw.columns) # Back to original shape
+            
+            # Apply prediction boundaries to samples after inverse transformation
+            constrained_samples = self.model._apply_prediction_boundaries(prediction_samples.values, target_columns)
+            prediction_samples = pd.DataFrame(constrained_samples, columns=prediction_samples.columns)
         else:
             prediction_samples = prediction_samples_raw
 
@@ -218,8 +236,7 @@ class WalkForwardValidator:
         if self.persist_samples:
             # Convert the 1, 4, 1000 array to a dataframe and save as parquet
 
-            samples_df = pd.DataFrame(prediction_samples.reshape(-1, prediction_samples.shape[-1]).T,
-                                      columns=target_columns)
+            samples_df = prediction_samples
 
             samples_df.to_parquet(self.sample_dir / f"{predict_date}.parquet")
         if isinstance(self.model, GaussianProcessEnsemble):
@@ -300,19 +317,19 @@ class WalkForwardValidator:
             raise ValueError(f"Invalid time_prediction: {self.time_prediction}")
 
         # testing comment the following out when running the full validation
-        windows = windows[:1]
+        # windows = windows[-10:]
 
         logger.info(f"Running {len(windows)} predictions with {len(features)} features")
         # Run predictions
-        for i, (train_start_idx, train_end_idx) in enumerate(windows):
+        for i, (train_start_idx, train_end_idx) in tqdm(enumerate(windows), desc='Running Walk Forward Validation', total=len(windows)):
             if self.time_prediction == 'one-day-ahead':
                 predict_idx = train_end_idx
             elif self.time_prediction == 'seven-day-ahead':
-                predict_idx = train_end_idx + 6
+                predict_idx = train_end_idx + 7
             elif self.time_prediction == 'thirty-day-ahead':
-                predict_idx = train_end_idx + 29
+                predict_idx = train_end_idx + 30
             elif self.time_prediction == 'sixty-day-ahead':
-                predict_idx = train_end_idx + 59
+                predict_idx = train_end_idx + 60
             else:
                 raise ValueError(f"Invalid time_prediction: {self.time_prediction}")
             
