@@ -131,7 +131,7 @@ def run_pipeline_transformations(time_prediction: str, monte_carlo: bool = False
 
 
 if __name__ == "__main__":
-    # pass the time prediction and monte_carlo flag as arguments
+    # pass the time prediction and monte_carlo flag as arguments commiting
     try:
         time_prediction = sys.argv[1]
     except IndexError:

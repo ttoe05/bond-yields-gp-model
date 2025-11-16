@@ -310,7 +310,8 @@ class ForecastingMetrics:
         for col in self.actuals_variables:
             self.forecasts_df[[f"{col}_sample_metric", f"{col}_sample_range"]] = self.forecasts_df.apply(lambda x: self.metric_calculator(x[f"{col}"], x[f"{col}_future_val_std"], x[f"{col}_future_val_mean"], x[f"{col}_future_val_min"], x[f"{col}_future_val_max"]),
                                                                                                          axis=1,
-                                                                                                         result_type='expand')
+                                                                                                         result_type='expand'
+                                                                                                         )
 
 
 
