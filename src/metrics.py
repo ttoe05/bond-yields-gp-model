@@ -176,9 +176,9 @@ class ForecastingMetrics:
 
 
 if __name__ == "__main__":
-    forecasts = ForecastingMetrics(time_prediction='one-day-ahead',
+    forecasts = ForecastingMetrics(time_prediction='thirty-day-ahead',
                                    actuals_file="data/fred_prorcessed_daily.parquet",
-                                   monte_carlo=True)
+                                   monte_carlo=False)
 
     print(forecasts.forecasts_df.head())
     print(forecasts.actuals_df.head())

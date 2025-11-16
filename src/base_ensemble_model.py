@@ -156,8 +156,8 @@ class BaseEnsembleModel(ABC):
             if col in self.training_percentiles:
                 # td_3 = self.training_percentiles[col][3]
                 p1, p99, mean_val, std_val = self.training_percentiles[col]
-                clip_val1 = mean_val + (3 * std_val)
-                clip_val2 = mean_val + (4.2 * std_val)
+                clip_val1 = mean_val + (3.5 * std_val)
+                clip_val2 = mean_val + (4.6 * std_val)
                 # randomly sample a number between these two value
                 clip_val = uniform(clip_val1, clip_val2)
                 

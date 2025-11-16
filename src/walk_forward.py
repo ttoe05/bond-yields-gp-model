@@ -317,7 +317,7 @@ class WalkForwardValidator:
             raise ValueError(f"Invalid time_prediction: {self.time_prediction}")
 
         # testing comment the following out when running the full validation
-        # windows = windows[-10:]
+        windows = windows[-30:]
 
         logger.info(f"Running {len(windows)} predictions with {len(features)} features")
         # Run predictions
