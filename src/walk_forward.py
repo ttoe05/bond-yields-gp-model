@@ -10,9 +10,11 @@ import logging
 from datetime import datetime
 import gc
 from data_loader import BondDataLoader
-from feature_manager import FeatureManager
+from feature_manager_sim import FeatureManagerSim
 from gp_models import GaussianProcessEnsemble
 from bayesian_ridge_models import BayesianRidgeEnsemble
+from kernel_ridge_models import KernelRidgeEnsemble
+from sklearn.preprocessing import StandardScaler
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
@@ -23,7 +25,7 @@ class WalkForwardValidator:
     """Walk-forward validation framework for time series forecasting."""
     
     def __init__(self,
-                 model: GaussianProcessEnsemble | BayesianRidgeEnsemble,
+                 model: GaussianProcessEnsemble | BayesianRidgeEnsemble | KernelRidgeEnsemble,
                  data_loader: BondDataLoader,
                  feature_manager: FeatureManager,
                  time_prediction: str,
@@ -32,17 +34,25 @@ class WalkForwardValidator:
                  min_window_size: int = 2000,
                  step_size: int = 1,
                  model_retrain_interval: int = 20,
-                 n_parallel_jobs: int = 5):
+                 n_parallel_jobs: int = 5,
+                 use_scaling: bool = False,
+                 window_type: str = 'sliding'):
         """
         Initialize walk-forward validator.
         
         Args:
+            model: Model instance (GP, Bayesian Ridge, or KRR)
             data_loader: Configured data loader
             feature_manager: Feature manager instance
-            window_size: Size of training window (default: 252 trading days)
+            time_prediction: Time prediction horizon
+            persist_samples: Whether to persist prediction samples
+            window_size: Size of training window (default: 3000 trading days)
             min_window_size: Minimum window size for training
             step_size: Step size for walking forward (default: 1 day)
+            model_retrain_interval: Interval for model retraining
             n_parallel_jobs: Number of parallel jobs for training
+            use_scaling: Whether to apply standard scaling to features and targets
+            window_type: Type of window ('sliding' or 'growing')
         """
         self.data_loader = data_loader
         self.time_prediction = time_prediction
@@ -57,6 +67,18 @@ class WalkForwardValidator:
         self.model = model
         self.persist_samples = persist_samples
         self.feature_importance = None
+        self.use_scaling = use_scaling
+        self.window_type = window_type
+        
+        # Initialize scalers for features and targets
+        if self.use_scaling:
+            self.scaler_x = StandardScaler()
+            self.scaler_y = StandardScaler()
+            self.scalers_fitted = False
+        else:
+            self.scaler_x = None
+            self.scaler_y = None
+            self.scalers_fitted = False
 
         # set up sample directory if true
         if self.persist_samples:
@@ -102,13 +124,44 @@ class WalkForwardValidator:
             target_columns=target_columns,
             feature_columns=features
         )
+        
+        # Apply scaling if enabled
+        if self.use_scaling:
+            if self.model_retrain_counter == self.model_retrain_interval or self.initial_run:
+                # Fit scalers on new training data during retrain
+                x_train_scaled = pd.DataFrame(
+                    self.scaler_x.fit_transform(x_train),
+                    columns=x_train.columns,
+                    index=x_train.index
+                )
+                y_train_scaled = pd.DataFrame(
+                    self.scaler_y.fit_transform(y_train),
+                    columns=y_train.columns,
+                    index=y_train.index
+                )
+                self.scalers_fitted = True
+            else:
+                # Transform using existing scalers
+                x_train_scaled = pd.DataFrame(
+                    self.scaler_x.transform(x_train),
+                    columns=x_train.columns,
+                    index=x_train.index
+                )
+                y_train_scaled = pd.DataFrame(
+                    self.scaler_y.transform(y_train),
+                    columns=y_train.columns,
+                    index=y_train.index
+                )
+        else:
+            x_train_scaled = x_train
+            y_train_scaled = y_train
         # Check if a retrain is needed
         if self.model_retrain_counter == self.model_retrain_interval or self.initial_run:
             retrain = True
             logger.info(f"Running retrain for window {x_train.index.min()}-{x_train.index.max()}")
-            # train the model
-            self.model.train_historical(x=x_train, y=y_train)
-            self.feature_importance = self.model.get_feature_importance_proxy(X=x_train)
+            # train the model with scaled or original data
+            self.model.train_historical(x=x_train_scaled, y=y_train_scaled)
+            self.feature_importance = self.model.get_feature_importance_proxy(X=x_train_scaled)
             # Reset counter
             self.model_retrain_counter = 0
             if self.initial_run:
@@ -119,17 +172,46 @@ class WalkForwardValidator:
 
         # Get prediction features
         x_predict = self.data_loader.get_prediction_point(idx=predict_idx, feature_columns=features)
+        
+        # Scale prediction features if scaling is enabled
+        if self.use_scaling and self.scalers_fitted:
+            x_predict_scaled = pd.DataFrame(
+                self.scaler_x.transform(x_predict),
+                columns=x_predict.columns,
+                index=x_predict.index
+            )
+        else:
+            x_predict_scaled = x_predict
 
         # Get actual value
         actual_value = self.data_loader.get_actual_value(idx=predict_idx, target_columns=target_columns)
 
         # Get prediction date
         predict_date = self.data_loader.get_date_for_index(predict_idx)
-        # Make prediction
-        prediction_val = self.model.predict_val(x=x_predict)
-        # Make prediciton samples
-
-        prediction_samples = self.model.predict_val_distribution(x=x_predict, y=y_train, n_samples=1000)
+        # Make prediction with scaled features
+        prediction_val_raw = self.model.predict_val(x=x_predict_scaled)
+        
+        # Apply inverse scaling to predictions if scaling is enabled
+        if self.use_scaling and self.scalers_fitted:
+            prediction_val = self.scaler_y.inverse_transform(prediction_val_raw.reshape(1, -1)).flatten()
+        else:
+            prediction_val = prediction_val_raw
+        
+        # Make prediction samples
+        prediction_samples_raw = self.model.predict_val_distribution(x=x_predict_scaled, y=y_train_scaled, n_samples=1000)
+        
+        # Apply inverse scaling to samples if scaling is enabled
+        if self.use_scaling and self.scalers_fitted:
+            # Reshape samples for inverse transform
+            samples_shape = prediction_samples_raw.shape
+            if len(samples_shape) == 3:  # (1, n_outputs, n_samples)
+                samples_reshaped = prediction_samples_raw.reshape(-1, samples_shape[-1]).T  # (n_samples, n_outputs)
+                prediction_samples_transformed = self.scaler_y.inverse_transform(samples_reshaped)
+                prediction_samples = prediction_samples_transformed.T.reshape(samples_shape)  # Back to original shape
+            else:  # (n_samples, n_outputs)
+                prediction_samples = self.scaler_y.inverse_transform(prediction_samples_raw)
+        else:
+            prediction_samples = prediction_samples_raw
 
 
         # Persist samples if needed
@@ -149,12 +231,21 @@ class WalkForwardValidator:
                 'best_kernel': self.model.best_kernel_name,
                 'retrain': retrain,
             }
-        else:  # BayesianRidgeEnsemble
+        elif isinstance(self.model, BayesianRidgeEnsemble):
             result = {
                 'date': predict_date,
                 'actual_value': list(actual_value.to_numpy()),
                 'prediction': list(prediction_val),
                 # 'prediction_std': list(prediction_std),
+                'best_alpha': self.model.best_alpha_name,
+                'retrain': retrain,
+            }
+        else:  # KernelRidgeEnsemble
+            result = {
+                'date': predict_date,
+                'actual_value': list(actual_value.to_numpy()),
+                'prediction': list(prediction_val),
+                'best_kernel': self.model.best_kernel_name,
                 'best_alpha': self.model.best_alpha_name,
                 'retrain': retrain,
             }
@@ -191,7 +282,11 @@ class WalkForwardValidator:
         target_columns = self.feature_manager.get_dependent_variables()
         
         # Get time windows
-        windows = self.data_loader.get_time_windows(window_size=self.window_size, min_window_size=self.min_window_size)
+        windows = self.data_loader.get_time_windows(
+            window_size=self.window_size, 
+            min_window_size=self.min_window_size,
+            window_type=self.window_type
+        )
         # clip window list based on the look ahead period
         if self.time_prediction == 'one-day-ahead':
             windows = windows[:-1]
